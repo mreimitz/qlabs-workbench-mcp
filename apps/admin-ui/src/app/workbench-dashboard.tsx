@@ -1,122 +1,29 @@
 "use client";
 
-import Image from "next/image";
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
-import { QpsAssetsBrowser } from "./qps-assets-browser";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-  ScrollArea,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  StatePanel,
-  Separator,
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  StatusBadge,
-  ThemeSwitcher,
-  Textarea,
-} from "@brand/ui";
-import { MetricCard, MetricGrid } from "@brand/charts";
-import { ColumnPicker, DataTable, FilterBar, SearchInput, type ColumnDef } from "@brand/data";
-import { FolderOpen, Home, Images, Play, Server } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@brand/ui";
+import { AssetsView } from "./workbench/assets-view";
+import { prettyJson } from "./workbench/format";
+import { OverviewView } from "./workbench/overview-view";
+import { RunnerView, type ToolInventoryRow } from "./workbench/runner-view";
+import { ServersView } from "./workbench/servers-view";
+import { StorageView } from "./workbench/storage-view";
+import type {
+  AssetRecord,
+  DashboardPayload,
+  StorageBrowse,
+  ViewKey,
+} from "./workbench/types";
+import { WorkbenchShell } from "./workbench/workbench-shell";
 
-type Tool = { name: string; description?: string; inputSchema?: unknown };
-type ServerRef = { name: string; url: string; enabled: boolean };
-type RunRecord = {
-  id: string;
-  startedAt: string;
-  finishedAt: string;
-  durationMs: number;
-  serverName: string;
-  toolName: string;
-  status: "success" | "error";
-  arguments: unknown;
-  response: unknown;
-  error?: string;
-};
-type ServerStatus = {
-  server: ServerRef;
-  healthUrl: string;
-  ok: boolean;
-  status: "healthy" | "attention" | "disabled" | "setup-required";
-  configured: boolean;
-  enabled: boolean;
-  latencyMs: number | null;
-  tools: Tool[];
-  error?: string;
-  note?: string;
-};
-type DashboardData = {
-  summary: {
-    totalServers: number;
-    enabledServers: number;
-    disabledServers: number;
-    healthyServers: number;
-    setupRequiredServers: number;
-    unhealthyServers: number;
-    totalTools: number;
-    totalRuns: number;
-  };
-  diagnostics: {
-    attentionCount: number;
-    disabledCount: number;
-    setupRequiredCount: number;
-  };
-  servers: ServerStatus[];
-  runs: RunRecord[];
-};
-type StorageHealth = {
-  ok: boolean;
-  storageRoot: string;
-  seeded?: boolean;
-};
-type StorageBrowse = {
-  path: string;
-  entries: { name: string; kind: "folder" | "file" }[];
-};
-type AssetRecord = {
-  filename: string;
-  keywords: string[];
-  url: string;
-};
+export type { DashboardPayload } from "./workbench/types";
 
-export type DashboardPayload = {
-  dashboard: DashboardData;
-  storageHealth: StorageHealth;
-  rootBrowse: StorageBrowse;
-  assets: { assets: AssetRecord[] };
-  error?: string;
-};
-
-type ViewKey = "overview" | "servers" | "runner" | "assets" | "storage";
 const staticEndpointMap: Record<string, string> = {
   "admin-ui": "http://localhost:3000",
   "control-api": "http://localhost:4000",
   "storage-api": "http://localhost:4100",
 };
+
 const serverEndpointMap: Record<string, string> = {
   "mcp-playwright": "http://localhost:7010/mcp",
   "mcp-markitdown": "http://localhost:7020/mcp",
@@ -124,14 +31,6 @@ const serverEndpointMap: Record<string, string> = {
   "mcp-assets": "http://localhost:7040/mcp",
   "mcp-qps-toolkit": "http://localhost:7050/mcp",
 };
-
-const navItems: Array<{ id: ViewKey; label: string; icon: typeof Home }> = [
-  { id: "overview", label: "Overview", icon: Home },
-  { id: "servers", label: "Servers", icon: Server },
-  { id: "runner", label: "Tool Runner", icon: Play },
-  { id: "assets", label: "Assets", icon: Images },
-  { id: "storage", label: "Storage", icon: FolderOpen },
-];
 
 const defaultArgsByTool: Record<string, Record<string, unknown>> = {
   pw_get_title: { url: "https://example.com" },
@@ -164,31 +63,6 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
   return btoa(binary);
 };
 
-const formatLatency = (latencyMs: number | null) => {
-  if (latencyMs === null) return "n/a";
-  if (latencyMs < 1000) return `${latencyMs} ms`;
-  return `${(latencyMs / 1000).toFixed(1)} s`;
-};
-
-const formatDateTime = (value: string) =>
-  new Date(value).toLocaleString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-    day: "numeric",
-  });
-
-const isImageFile = (filename: string) => /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
-const prettyJson = (value: unknown) => JSON.stringify(value ?? {}, null, 2);
-const describeServerStatus = (server: ServerStatus) => {
-  if (server.status === "healthy") return server.note ?? "Ready for execution";
-  if (server.status === "disabled") return "Disabled from the local registry";
-  if (server.status === "setup-required") {
-    return server.note ?? "Additional local content is required before this integration can run";
-  }
-  return server.error ?? "Needs operator attention";
-};
-
 export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
   const initialServerName =
     props.initialData.dashboard.servers.find(
@@ -213,19 +87,21 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
   const [selectedServer, setSelectedServer] = useState(initialServerName);
   const [selectedTool, setSelectedTool] = useState(initialToolName);
   const [toolArgs, setToolArgs] = useState(prettyJson(defaultArgsByTool[initialToolName] ?? {}));
-  const [lastRunOutput, setLastRunOutput] = useState<string>("");
+  const [lastRunOutput, setLastRunOutput] = useState("");
   const [selectedRunId, setSelectedRunId] = useState(props.initialData.dashboard.runs[0]?.id ?? "");
   const [assetKeywordFilter, setAssetKeywordFilter] = useState("");
   const [assetKeywords, setAssetKeywords] = useState("");
   const [assetTagDrafts, setAssetTagDrafts] = useState<Record<string, string>>({});
   const [assetViewMode, setAssetViewMode] = useState<"qps" | "uploaded">(
-    props.initialData.dashboard.servers.some((s) => s.server.name === "mcp-qps-toolkit" && s.enabled) ? "qps" : "uploaded",
+    props.initialData.dashboard.servers.some((server) => server.server.name === "mcp-qps-toolkit" && server.enabled)
+      ? "qps"
+      : "uploaded",
   );
 
   const flashVariant =
     flash && /failed|error/i.test(flash)
       ? "destructive"
-      : flash && /created|uploaded|added|enabled|disabled|tagged|ran/i.test(flash)
+      : flash && /created|uploaded|added|enabled|disabled|tagged|ran|copied/i.test(flash)
         ? "success"
         : "info";
 
@@ -278,6 +154,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
       dashboardData.dashboard.servers.find((server) => server.server.name === selectedServer) ?? null,
     [dashboardData.dashboard.servers, selectedServer],
   );
+
   const activeTool = useMemo(
     () => activeServer?.tools.find((tool) => tool.name === selectedTool) ?? null,
     [activeServer, selectedTool],
@@ -299,7 +176,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
     setToolArgs(prettyJson(defaultArgsByTool[selectedTool] ?? {}));
   }, [selectedTool]);
 
-  const toolInventoryRows = useMemo(
+  const toolInventoryRows = useMemo<ToolInventoryRow[]>(
     () =>
       dashboardData.dashboard.servers.flatMap((server) =>
         server.tools.map((tool) => ({
@@ -336,15 +213,13 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
     [dashboardData.dashboard.servers],
   );
 
-  const endpointEntries = useMemo(() => {
+  const endpointRows = useMemo(() => {
     const entries = { ...staticEndpointMap } satisfies Record<string, string>;
     for (const server of dashboardData.dashboard.servers) {
       const mappedUrl = serverEndpointMap[server.server.name];
-      if (mappedUrl) {
-        entries[server.server.name] = mappedUrl;
-      }
+      if (mappedUrl) entries[server.server.name] = mappedUrl;
     }
-    return Object.entries(entries);
+    return Object.entries(entries).map(([name, url]) => ({ name, url }));
   }, [dashboardData.dashboard.servers]);
 
   const selectedRun = useMemo(
@@ -381,6 +256,15 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
       };
     }
   }, [toolArgs]);
+
+  const storageRows = useMemo(
+    () =>
+      browseData.entries.map((entry) => ({
+        ...entry,
+        path: joinPath(browseData.path, entry.name),
+      })),
+    [browseData.entries, browseData.path],
+  );
 
   const browsePath = async (path: string) => {
     setBusy(true);
@@ -533,7 +417,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
           arguments: parsedToolArgs.value,
         }),
       });
-      const payload = (await response.json()) as { error?: string; run?: RunRecord };
+      const payload = (await response.json()) as { error?: string; run?: DashboardPayload["dashboard"]["runs"][number] };
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to run tool");
       }
@@ -553,7 +437,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
         },
       }));
       setSelectedRunId(run.id);
-      setLastRunOutput(prettyJson(run.response));
+      setLastRunOutput(prettyJson(run.error ?? run.response));
       setFlash(`Ran ${selectedTool} on ${selectedServer}`);
     } catch (error) {
       setFlash(error instanceof Error ? error.message : "Failed to run tool");
@@ -630,942 +514,116 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
     }
   };
 
-  const activeNavItem = navItems.find((item) => item.id === activeView) ?? navItems[0];
-
-  const endpointRows = useMemo(
-    () => endpointEntries.map(([name, url]) => ({ name, url })),
-    [endpointEntries],
-  );
-
-  const storageRows = useMemo(
-    () =>
-      browseData.entries.map((entry) => ({
-        ...entry,
-        path: joinPath(browseData.path, entry.name),
-      })),
-    [browseData.entries, browseData.path],
-  );
+  const selectTool = (serverName: string, toolName: string) => {
+    setSelectedServer(serverName);
+    setSelectedTool(toolName);
+  };
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="px-3 py-2 font-semibold">QLabs</SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {navItems.map((item) => (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton
-                      isActive={activeView === item.id}
-                      tooltip={item.label}
-                      onClick={() => setActiveView(item.id)}
-                    >
-                      <item.icon aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-      </Sidebar>
+    <WorkbenchShell
+      activeView={activeView}
+      busy={busy}
+      onRefresh={refreshDashboard}
+      onViewChange={setActiveView}
+    >
+      {flash ? (
+        <Alert variant={flashVariant} className="mb-6">
+          <AlertTitle>Workbench update</AlertTitle>
+          <AlertDescription>{flash}</AlertDescription>
+        </Alert>
+      ) : null}
 
-      <SidebarInset>
-        <header className="flex h-14 items-center gap-2 border-b px-4">
-          <SidebarTrigger />
-          <h1 className="text-sm font-medium">{activeNavItem.label}</h1>
-          <div className="ml-auto flex items-center gap-2">
-            <ThemeSwitcher themes={["qlik-bright", "qlik-dark"]} mode="dropdown" showSystem size="sm" />
-            <Button variant="outline-subtle" size="sm" onClick={refreshDashboard} disabled={busy}>
-              {busy ? "Refreshing..." : "Refresh"}
-            </Button>
-            <Button asChild variant="outline-subtle" size="sm">
-              <a href="http://localhost:3000" target="_blank" rel="noreferrer">
-                Open Clean Tab
-              </a>
-            </Button>
-          </div>
-        </header>
+      {activeView === "overview" ? (
+        <OverviewView
+          endpointRows={endpointRows}
+          endpointsSearch={endpointsSearch}
+          onCopyEndpoint={copyToClipboard}
+          onEndpointsSearchChange={setEndpointsSearch}
+          onRunsSearchChange={setRunsSearch}
+          onSelectRun={setSelectedRunId}
+          payload={dashboardData}
+          rootStats={rootStats}
+          runsSearch={runsSearch}
+          selectedRun={selectedRun}
+        />
+      ) : null}
 
-        <main className="flex flex-col gap-6 p-6">
-          {flash ? (
-            <Alert variant={flashVariant}>
-              <AlertTitle>Workbench update</AlertTitle>
-              <AlertDescription>{flash}</AlertDescription>
-            </Alert>
-          ) : null}
+      {activeView === "servers" ? (
+        <ServersView
+          busy={busy}
+          dashboard={dashboardData.dashboard}
+          onSearchChange={setServersSearch}
+          onToggleServer={toggleServer}
+          search={serversSearch}
+        />
+      ) : null}
 
-          {activeView === "overview" ? (
-            <div className="flex flex-col gap-6">
-              <section aria-label="Key metrics">
-                <MetricGrid columns={4}>
-                  <MetricCard
-                    label="Healthy servers"
-                    value={`${dashboardData.dashboard.summary.healthyServers}/${dashboardData.dashboard.summary.enabledServers}`}
-                    description="Currently healthy among enabled services"
-                    emphasis="headline"
-                  />
-                  <MetricCard
-                    label="Storage root"
-                    value={dashboardData.storageHealth.storageRoot}
-                    description={dashboardData.storageHealth.ok ? "Storage API healthy" : "Storage API needs attention"}
-                    className="font-mono"
-                  />
-                  <MetricCard
-                    label="Current folder"
-                    value={browseData.path || "/"}
-                    description={`${rootStats.folders} folders / ${rootStats.files} files`}
-                    className="font-mono"
-                  />
-                  <MetricCard
-                    label="Attention signals"
-                    value={String(dashboardData.dashboard.diagnostics.attentionCount)}
-                    description="Servers that need operator review"
-                  />
-                </MetricGrid>
-              </section>
+      {activeView === "runner" ? (
+        <RunnerView
+          activeServer={activeServer}
+          activeTool={activeTool}
+          busy={busy}
+          lastRunOutput={lastRunOutput}
+          onCopyCurl={copyRunCurl}
+          onCopyOutput={() =>
+            copyToClipboard("last run output", lastRunOutput || "Run a tool to inspect output here.")
+          }
+          onCopyPayload={copyRunPayload}
+          onRunSelectedTool={runSelectedTool}
+          onSelectServer={setSelectedServer}
+          onSelectedToolChange={setSelectedTool}
+          onSelectTool={selectTool}
+          onToolArgsChange={setToolArgs}
+          onToolFilterChange={setToolFilter}
+          parsedToolArgs={parsedToolArgs}
+          runnableServers={runnableServers}
+          selectedServer={selectedServer}
+          selectedTool={selectedTool}
+          toolArgs={toolArgs}
+          toolFilter={toolFilter}
+          toolInventoryRows={toolInventoryRows}
+        />
+      ) : null}
 
-              <Card>
-                <CardContent className="p-6">
-                  <StatePanel
-                    kind="empty"
-                    title="Charts"
-                    description="Add a chart to visualize activity, latency, or tool usage."
-                  />
-                </CardContent>
-              </Card>
+      {activeView === "assets" ? (
+        <AssetsView
+          assetKeywordFilter={assetKeywordFilter}
+          assetKeywords={assetKeywords}
+          assetTagDrafts={assetTagDrafts}
+          assetViewMode={assetViewMode}
+          busy={busy}
+          filteredAssets={filteredAssets}
+          onAddAssetTags={addAssetTags}
+          onAssetKeywordFilterChange={setAssetKeywordFilter}
+          onAssetKeywordsChange={setAssetKeywords}
+          onAssetTagDraftChange={(filename, value) =>
+            setAssetTagDrafts((current) => ({ ...current, [filename]: value }))
+          }
+          onAssetViewModeChange={setAssetViewMode}
+          onUploadAsset={uploadAsset}
+          qpsToolkitServer={qpsToolkitServer}
+          totalAssets={dashboardData.assets.assets.length}
+        />
+      ) : null}
 
-              <Card>
-                <CardHeader className="gap-2">
-                  <CardTitle>Recent runs</CardTitle>
-                  <CardDescription>Latest tool executions recorded by the control plane.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                  <DataTable
-                    columns={
-                      [
-                        {
-                          id: "run",
-                          header: "Run",
-                          accessorFn: (row) =>
-                            `${row.serverName} ${row.toolName} ${row.error ?? ""}`.trim(),
-                          cell: ({ row }) => (
-                            <div className="flex flex-col gap-1">
-                              <div className="font-medium">
-                                {row.original.serverName} / {row.original.toolName}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {row.original.error ?? "Completed and recorded."}
-                              </div>
-                            </div>
-                          ),
-                        },
-                        {
-                          id: "started",
-                          header: "Started",
-                          accessorFn: (row) => row.startedAt,
-                          cell: ({ row }) => formatDateTime(row.original.startedAt),
-                        },
-                        {
-                          id: "duration",
-                          header: "Duration",
-                          accessorFn: (row) => row.durationMs,
-                          cell: ({ row }) => (
-                            <span className="tabular-nums">{row.original.durationMs} ms</span>
-                          ),
-                        },
-                        {
-                          id: "status",
-                          header: "Status",
-                          accessorFn: (row) => row.status,
-                          cell: ({ row }) => (
-                            <StatusBadge
-                              status={row.original.status === "success" ? "complete" : "failed"}
-                            />
-                          ),
-                        },
-                        {
-                          id: "inspect",
-                          header: "",
-                          cell: ({ row }) => (
-                            <Button
-                              variant="outline-subtle"
-                              size="sm"
-                              onClick={() => setSelectedRunId(row.original.id)}
-                            >
-                              Inspect
-                            </Button>
-                          ),
-                        },
-                      ] satisfies ColumnDef<RunRecord>[]
-                    }
-                    data={dashboardData.dashboard.runs}
-                    enablePagination
-                    globalFilter={runsSearch}
-                    onGlobalFilterChange={setRunsSearch}
-                    toolbar={(table) => (
-                      <FilterBar actions={<ColumnPicker table={table} />}>
-                        <SearchInput value={runsSearch} onValueChange={setRunsSearch} />
-                      </FilterBar>
-                    )}
-                  />
-
-                  {selectedRun ? (
-                    <Card className="border-dashed">
-                      <CardHeader className="gap-2">
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="min-w-0">
-                            <CardTitle className="truncate text-base">
-                              {selectedRun.serverName} / {selectedRun.toolName}
-                            </CardTitle>
-                            <CardDescription>
-                              {formatDateTime(selectedRun.startedAt)} • {selectedRun.durationMs} ms
-                            </CardDescription>
-                          </div>
-                          <StatusBadge
-                            status={selectedRun.status === "success" ? "complete" : "failed"}
-                          />
-                        </div>
-                      </CardHeader>
-                      <CardContent className="grid gap-4 lg:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                          <Label>Arguments</Label>
-                          <ScrollArea className="h-48 rounded-md border border-border bg-surface-muted/40 p-4">
-                            <pre className="whitespace-pre-wrap break-words font-mono text-xs">
-                              {prettyJson(selectedRun.arguments)}
-                            </pre>
-                          </ScrollArea>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Label>Response / error</Label>
-                          <ScrollArea className="h-48 rounded-md border border-border bg-surface-muted/40 p-4">
-                            <pre className="whitespace-pre-wrap break-words font-mono text-xs">
-                              {selectedRun.error ?? prettyJson(selectedRun.response)}
-                            </pre>
-                          </ScrollArea>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="gap-2">
-                  <CardTitle>Endpoints</CardTitle>
-                  <CardDescription>Stable local entry points for UI checks and tooling.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <DataTable
-                    columns={
-                      [
-                        {
-                          accessorKey: "name",
-                          header: "Name",
-                        },
-                        {
-                          accessorKey: "url",
-                          header: "URL",
-                          cell: ({ row }) => (
-                            <span className="break-all font-mono text-xs text-foreground">{row.original.url}</span>
-                          ),
-                        },
-                        {
-                          id: "actions",
-                          header: "",
-                          cell: ({ row }) => (
-                            <div className="flex flex-wrap justify-end gap-2">
-                              <Button asChild variant="outline-subtle" size="sm">
-                                <a href={row.original.url} target="_blank" rel="noreferrer">
-                                  Open
-                                </a>
-                              </Button>
-                              <Button
-                                variant="outline-subtle"
-                                size="sm"
-                                onClick={() => copyToClipboard(row.original.name, row.original.url)}
-                              >
-                                Copy
-                              </Button>
-                            </div>
-                          ),
-                        },
-                      ] satisfies ColumnDef<(typeof endpointRows)[number]>[]
-                    }
-                    data={endpointRows}
-                    enablePagination
-                    globalFilter={endpointsSearch}
-                    onGlobalFilterChange={setEndpointsSearch}
-                    toolbar={(table) => (
-                      <FilterBar actions={<ColumnPicker table={table} />}>
-                        <SearchInput value={endpointsSearch} onValueChange={setEndpointsSearch} />
-                      </FilterBar>
-                    )}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-          ) : null}
-
-          {activeView === "servers" ? (
-            <Card>
-              <CardHeader className="gap-2">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <CardTitle>Service registry</CardTitle>
-                    <CardDescription>Enable, disable, and inspect the health of each registered server.</CardDescription>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary">Enabled {dashboardData.dashboard.summary.enabledServers}</Badge>
-                    <Badge variant="secondary">Disabled {dashboardData.dashboard.summary.disabledServers}</Badge>
-                    <Badge variant="warning">Setup {dashboardData.dashboard.summary.setupRequiredServers}</Badge>
-                    <Badge variant="secondary">Attention {dashboardData.dashboard.diagnostics.attentionCount}</Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <DataTable
-                  columns={
-                    [
-                      {
-                        id: "server",
-                        header: "Server",
-                        accessorFn: (row) => `${row.server.name} ${row.server.url}`,
-                        cell: ({ row }) => (
-                            <div className="flex flex-col gap-1">
-                            <div className="font-medium">{row.original.server.name}</div>
-                            <div className="font-mono text-xs text-muted-foreground">
-                              {row.original.server.url}
-                            </div>
-                            {row.original.note ? (
-                              <div className="text-xs text-muted-foreground">{row.original.note}</div>
-                            ) : null}
-                            {row.original.error ? (
-                              <div className="text-xs text-destructive">{row.original.error}</div>
-                            ) : null}
-                          </div>
-                        ),
-                      },
-                      {
-                        id: "status",
-                        header: "Status",
-                        accessorFn: (row) => row.status,
-                        cell: ({ row }) => (
-                          <div className="flex flex-col gap-2">
-                            <ServerStatusBadge status={row.original.status} />
-                            <p className="max-w-xs text-xs text-muted-foreground">
-                              {describeServerStatus(row.original)}
-                            </p>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: "latency",
-                        header: "Latency",
-                        accessorFn: (row) => row.latencyMs ?? -1,
-                        cell: ({ row }) => formatLatency(row.original.latencyMs),
-                      },
-                      {
-                        id: "tools",
-                        header: "Tools",
-                        accessorFn: (row) => row.tools.length,
-                        cell: ({ row }) => <span className="tabular-nums">{row.original.tools.length}</span>,
-                      },
-                      {
-                        id: "links",
-                        header: "Links",
-                        cell: ({ row }) => (
-                          <div className="flex flex-wrap gap-2">
-                            <Button asChild variant="outline-subtle" size="sm">
-                              <a href={row.original.healthUrl} target="_blank" rel="noreferrer">
-                                Health
-                              </a>
-                            </Button>
-                            <Button asChild variant="outline-subtle" size="sm">
-                              <a href={row.original.server.url} target="_blank" rel="noreferrer">
-                                MCP
-                              </a>
-                            </Button>
-                          </div>
-                        ),
-                      },
-                      {
-                        id: "action",
-                        header: "",
-                        cell: ({ row }) => (
-                          <div className="flex justify-end">
-                            <Button
-                              variant="outline-subtle"
-                              size="sm"
-                              onClick={() => toggleServer(row.original.server.name, !row.original.server.enabled)}
-                              disabled={busy}
-                            >
-                              {row.original.server.enabled ? "Disable" : "Enable"}
-                            </Button>
-                          </div>
-                        ),
-                      },
-                    ] satisfies ColumnDef<ServerStatus>[]
-                  }
-                  data={dashboardData.dashboard.servers}
-                  enablePagination
-                  globalFilter={serversSearch}
-                  onGlobalFilterChange={setServersSearch}
-                  toolbar={(table) => (
-                    <FilterBar actions={<ColumnPicker table={table} />}>
-                      <SearchInput value={serversSearch} onValueChange={setServersSearch} />
-                    </FilterBar>
-                  )}
-                />
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {activeView === "runner" ? (
-            <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Run MCP tools</CardTitle>
-                  <CardDescription>Choose a server, inspect the tool surface, and execute with explicit JSON arguments.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="server-select">Server</Label>
-                    <Select value={selectedServer} onValueChange={setSelectedServer}>
-                      <SelectTrigger id="server-select">
-                        <SelectValue placeholder="Select a server" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {runnableServers.map((server) => (
-                          <SelectItem key={server.server.name} value={server.server.name}>
-                            {server.server.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="tool-select">Tool</Label>
-                    <Select value={selectedTool} onValueChange={setSelectedTool}>
-                      <SelectTrigger id="tool-select">
-                        <SelectValue placeholder="Select a tool" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(activeServer?.tools ?? []).map((tool) => (
-                          <SelectItem key={tool.name} value={tool.name}>
-                            {tool.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="tool-args">Arguments JSON</Label>
-                    <Textarea
-                      id="tool-args"
-                      className="min-h-64 font-mono text-xs"
-                      value={toolArgs}
-                      onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                        setToolArgs(event.target.value)
-                      }
-                    />
-                  </div>
-
-                  {parsedToolArgs.error ? (
-                    <Alert variant="destructive">
-                      <AlertTitle>Invalid JSON</AlertTitle>
-                      <AlertDescription>{parsedToolArgs.error}</AlertDescription>
-                    </Alert>
-                  ) : null}
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      onClick={runSelectedTool}
-                      disabled={busy || !selectedServer || !selectedTool || !!parsedToolArgs.error}
-                    >
-                      Run selected tool
-                    </Button>
-                    <Button
-                      variant="outline-subtle"
-                      onClick={copyRunPayload}
-                      disabled={!selectedServer || !selectedTool || !!parsedToolArgs.error}
-                    >
-                      Copy payload
-                    </Button>
-                    <Button
-                      variant="outline-subtle"
-                      onClick={copyRunCurl}
-                      disabled={!selectedServer || !selectedTool || !!parsedToolArgs.error}
-                    >
-                      Copy curl
-                    </Button>
-                  </div>
-
-                  {activeTool ? (
-                    <Card className="border-dashed">
-                      <CardHeader className="pb-4">
-                        <CardTitle className="text-base">{activeTool.name}</CardTitle>
-                        <CardDescription>
-                          {activeTool.description ?? "No description available for this tool."}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex flex-col gap-2">
-                        <Label>Input schema</Label>
-                        <ScrollArea className="h-40 rounded-md border border-border bg-surface-muted/40 p-4">
-                          <pre className="whitespace-pre-wrap break-words font-mono text-xs text-foreground">
-                            {prettyJson(activeTool.inputSchema ?? {})}
-                          </pre>
-                        </ScrollArea>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-                </CardContent>
-              </Card>
-
-              <div className="grid gap-6">
-                <Card>
-                  <CardHeader className="gap-2">
-                    <CardTitle>Tool inventory</CardTitle>
-                    <CardDescription>All exposed tools, searchable across servers.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <DataTable
-                      columns={
-                        [
-                          {
-                            accessorKey: "serverName",
-                            header: "Server",
-                          },
-                          {
-                            accessorKey: "toolName",
-                            header: "Tool",
-                          },
-                          {
-                            id: "status",
-                            header: "Status",
-                            accessorFn: (row) => row.status,
-                            cell: ({ row }) => <ServerStatusBadge status={row.original.status} />,
-                          },
-                          {
-                            accessorKey: "description",
-                            header: "Description",
-                            cell: ({ row }) =>
-                              row.original.description ? (
-                                <span className="block max-w-[60ch] truncate text-sm text-muted-foreground">
-                                  {row.original.description}
-                                </span>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">—</span>
-                              ),
-                          },
-                          {
-                            id: "select",
-                            header: "",
-                            cell: ({ row }) => (
-                              <div className="flex justify-end">
-                                <Button
-                                  variant="outline-subtle"
-                                  size="sm"
-                                  disabled={!row.original.enabled || row.original.status === "setup-required"}
-                                  onClick={() => {
-                                    setSelectedServer(row.original.serverName);
-                                    setSelectedTool(row.original.toolName);
-                                  }}
-                                >
-                                  Select
-                                </Button>
-                              </div>
-                            ),
-                          },
-                        ] satisfies ColumnDef<(typeof toolInventoryRows)[number]>[]
-                      }
-                      data={toolInventoryRows}
-                      enablePagination
-                      globalFilter={toolFilter}
-                      onGlobalFilterChange={setToolFilter}
-                      toolbar={(table) => (
-                        <FilterBar actions={<ColumnPicker table={table} />}>
-                          <SearchInput value={toolFilter} onValueChange={setToolFilter} />
-                        </FilterBar>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <CardTitle>Last tool result</CardTitle>
-                        <CardDescription>Structured responses stay visible for follow-up runs and debugging.</CardDescription>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="secondary" className="font-mono">
-                          {selectedTool || "No tool selected"}
-                        </Badge>
-                        <Button
-                          variant="outline-subtle"
-                          size="sm"
-                          onClick={() =>
-                            copyToClipboard(
-                              "last run output",
-                              lastRunOutput || "Run a tool to inspect output here.",
-                            )
-                          }
-                        >
-                          Copy output
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-80 rounded-md border border-border bg-surface-muted/40 p-4">
-                      <pre className="whitespace-pre-wrap break-words font-mono text-xs text-foreground">
-                        {lastRunOutput || "Run a tool to inspect output here."}
-                      </pre>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          ) : null}
-
-          {activeView === "assets" ? (
-            <>
-              <Card>
-                <CardHeader className="gap-2">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <CardTitle>Assets</CardTitle>
-                      <CardDescription>Browse qps-toolkit shared assets or manage uploaded assets and keywords.</CardDescription>
-                    </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                      <Select value={assetViewMode} onValueChange={(value) => setAssetViewMode(value as "qps" | "uploaded")}>
-                        <SelectTrigger className="w-56">
-                          <SelectValue placeholder="Asset source" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="qps">QPS toolkit</SelectItem>
-                          <SelectItem value="uploaded">Uploaded</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {assetViewMode === "uploaded" ? (
-                        <Input
-                          className="w-72"
-                          placeholder="Filter assets by file or keyword"
-                          value={assetKeywordFilter}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) => setAssetKeywordFilter(event.target.value)}
-                        />
-                      ) : (
-                        <Badge variant="secondary">
-                          {qpsToolkitServer?.configured ? "Toolkit mounted" : "Toolkit not mounted"}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-              </Card>
-
-              {assetViewMode === "qps" ? (
-                <QpsAssetsBrowser enabled={Boolean(qpsToolkitServer?.enabled && qpsToolkitServer?.configured)} note={qpsToolkitServer?.note} />
-              ) : (
-                <>
-                  <Card>
-                    <CardHeader className="gap-2">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                          <CardTitle>Uploaded asset registry</CardTitle>
-                          <CardDescription>Upload files once, tag them, and keep the shared keyword catalog organized.</CardDescription>
-                        </div>
-                        <Badge variant="secondary">
-                          {dashboardData.assets.assets.length} total asset{dashboardData.assets.assets.length === 1 ? "" : "s"}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="asset-file">Upload asset</Label>
-                        <Input id="asset-file" type="file" onChange={uploadAsset} disabled={busy} />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Label htmlFor="asset-keywords">Keywords</Label>
-                        <Input
-                          id="asset-keywords"
-                          placeholder="hero, screenshot, dark"
-                          value={assetKeywords}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) => setAssetKeywords(event.target.value)}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
-                    {filteredAssets.map((asset) => (
-                      <Card key={asset.filename}>
-                        <div className="border-b border-border">
-                          {isImageFile(asset.filename) ? (
-                            <div className="relative aspect-[16/10] overflow-hidden bg-surface-muted">
-                              <Image
-                                fill
-                                unoptimized
-                                alt={asset.filename}
-                                src={`/api/assets/files/${encodeURIComponent(asset.filename)}`}
-                                className="object-cover"
-                                sizes="(min-width: 1536px) 33vw, (min-width: 768px) 50vw, 100vw"
-                              />
-                            </div>
-                          ) : (
-                            <div className="flex aspect-[16/10] items-center justify-center bg-surface-muted text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                              File
-                            </div>
-                          )}
-                        </div>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-base">{asset.filename}</CardTitle>
-                          <CardDescription className="break-all font-mono text-xs">{asset.url}</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex flex-col gap-4">
-                          <div className="flex flex-wrap gap-2">
-                            {asset.keywords.length === 0 ? (
-                              <span className="text-sm text-muted-foreground">No keywords yet.</span>
-                            ) : (
-                              asset.keywords.map((keyword) => (
-                                <Badge key={keyword} variant="secondary">
-                                  {keyword}
-                                </Badge>
-                              ))
-                            )}
-                          </div>
-                          <Separator />
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="add,tags"
-                              value={assetTagDrafts[asset.filename] ?? ""}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                setAssetTagDrafts((current) => ({
-                                  ...current,
-                                  [asset.filename]: event.target.value,
-                                }))
-                              }
-                            />
-                            <Button variant="outline-subtle" onClick={() => addAssetTags(asset.filename)} disabled={busy}>
-                              Tag
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-
-                  {filteredAssets.length === 0 ? (
-                    <Card>
-                      <CardContent className="p-6">
-                        <StatePanel
-                          kind="empty"
-                          title="No assets found"
-                          description="Try a different filter, or upload a new asset and add keywords."
-                        />
-                      </CardContent>
-                    </Card>
-                  ) : null}
-                </>
-              )}
-            </>
-          ) : null}
-
-          {activeView === "storage" ? (
-            <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Folder manager</CardTitle>
-                  <CardDescription>Browse the mounted storage root, create folders, and upload files into the current path.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="storage-path">Current path</Label>
-                    <Input
-                      id="storage-path"
-                      placeholder="examples/screenshots"
-                      value={currentPath}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setCurrentPath(event.target.value)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline-subtle" onClick={() => browsePath(currentPath)} disabled={busy}>
-                      Browse
-                    </Button>
-                    <Button variant="outline-subtle" onClick={() => browsePath("")} disabled={busy}>
-                      Root
-                    </Button>
-                    <Button variant="outline-subtle" onClick={() => browsePath(currentPath)} disabled={busy}>
-                      Refresh folder
-                    </Button>
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="folder-name">Create folder</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="folder-name"
-                        placeholder="new-folder"
-                        value={folderName}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          setFolderName(event.target.value)
-                        }
-                      />
-                      <Button variant="secondary" onClick={createFolder} disabled={busy}>
-                        Create
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="storage-upload">Upload file into current path</Label>
-                    <Input id="storage-upload" type="file" onChange={uploadFile} disabled={busy} />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="grid gap-6">
-                <Card>
-                  <CardHeader>
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <CardTitle>Current directory</CardTitle>
-                        <CardDescription>Only paths inside the configured storage root are exposed.</CardDescription>
-                      </div>
-                      <Badge variant="secondary" className="font-mono">
-                        {browseData.path || "/"}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <MetricCard
-                      label="Folders"
-                      value={String(rootStats.folders)}
-                      description="Immediate child folders"
-                    />
-                    <MetricCard
-                      label="Files"
-                      value={String(rootStats.files)}
-                      description="Immediate child files"
-                    />
-                    <MetricCard
-                      label="Storage health"
-                      value={dashboardData.storageHealth.ok ? "Healthy" : "Attention"}
-                      description={dashboardData.storageHealth.storageRoot}
-                    />
-                    <MetricCard
-                      label="Browse target"
-                      value={browseData.path || "/"}
-                      description="Active operator context"
-                      className="font-mono"
-                    />
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Folder contents</CardTitle>
-                    <CardDescription>Open folders inline or download individual files.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {browseData.entries.length === 0 ? (
-                      <StatePanel
-                        kind="empty"
-                        title="This folder is empty"
-                        description="Create a folder or upload a file to populate the current path."
-                      />
-                    ) : (
-                      <DataTable
-                        columns={
-                          [
-                            {
-                              accessorKey: "name",
-                              header: "Name",
-                              cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
-                            },
-                            {
-                              accessorKey: "kind",
-                              header: "Kind",
-                              cell: ({ row }) => (
-                                <Badge variant={row.original.kind === "folder" ? "secondary" : "outline"}>
-                                  {row.original.kind}
-                                </Badge>
-                              ),
-                            },
-                            {
-                              id: "action",
-                              header: "",
-                              cell: ({ row }) => (
-                                <div className="flex justify-end">
-                                  {row.original.kind === "folder" ? (
-                                    <Button
-                                      variant="outline-subtle"
-                                      size="sm"
-                                      onClick={() => browsePath(row.original.path)}
-                                      disabled={busy}
-                                    >
-                                      Open
-                                    </Button>
-                                  ) : (
-                                    <Button asChild variant="outline-subtle" size="sm">
-                                      <a href={`/api/storage/files?path=${encodeURIComponent(row.original.path)}`}>
-                                        Download
-                                      </a>
-                                    </Button>
-                                  )}
-                                </div>
-                              ),
-                            },
-                          ] satisfies ColumnDef<(typeof storageRows)[number]>[]
-                        }
-                        data={storageRows
-                          .slice()
-                          .sort(
-                            (left, right) =>
-                              left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name),
-                          )}
-                        enablePagination
-                        globalFilter={storageSearch}
-                        onGlobalFilterChange={setStorageSearch}
-                        toolbar={(table) => (
-                          <FilterBar actions={<ColumnPicker table={table} />}>
-                            <SearchInput value={storageSearch} onValueChange={setStorageSearch} />
-                          </FilterBar>
-                        )}
-                      />
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          ) : null}
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+      {activeView === "storage" ? (
+        <StorageView
+          browseData={browseData}
+          busy={busy}
+          currentPath={currentPath}
+          dashboardData={dashboardData}
+          folderName={folderName}
+          onBrowsePath={browsePath}
+          onCreateFolder={createFolder}
+          onCurrentPathChange={setCurrentPath}
+          onFolderNameChange={setFolderName}
+          onStorageSearchChange={setStorageSearch}
+          onUploadFile={uploadFile}
+          rootStats={rootStats}
+          storageRows={storageRows}
+          storageSearch={storageSearch}
+        />
+      ) : null}
+    </WorkbenchShell>
   );
-}
-
-function ServerStatusBadge(props: { status: ServerStatus["status"] }) {
-  if (props.status === "healthy") {
-    return <StatusBadge status="complete" size="sm" />;
-  }
-  if (props.status === "disabled") {
-    return <StatusBadge status="skipped" size="sm" />;
-  }
-  if (props.status === "setup-required") {
-    return <StatusBadge status="awaiting-approval" size="sm" />;
-  }
-  return <StatusBadge status="failed" size="sm" />;
 }

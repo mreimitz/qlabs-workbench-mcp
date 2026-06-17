@@ -51,4 +51,10 @@
 ## Data lifecycle
 
 - Store raw bytes in filesystem volumes.
-- Store metadata (folders, tags, keywords, job history) in a database, even if the first scaffold starts as file-backed JSON.
+- Store local Control API registry and job history in SQLite inside the
+  Control API Docker volume. File-backed JSON is only a bootstrap/import source
+  for local migration.
+- Use Postgres only if the deployment model changes from local Docker Desktop
+  to shared infrastructure with concurrent users or external operations needs.
+- Store other metadata (folders, tags, keywords) in a database when it becomes
+  shared state; avoid ad hoc JSON as the long-term runtime store.

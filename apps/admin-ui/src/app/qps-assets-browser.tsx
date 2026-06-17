@@ -12,6 +12,7 @@ import {
   StatePanel,
   Separator,
 } from "@brand/ui";
+import { formatFileTimestamp } from "./workbench/format";
 
 type BrowseEntry = { name: string; kind: "folder" | "file"; path: string };
 type BrowsePayload = { path: string; entries: BrowseEntry[] };
@@ -199,8 +200,8 @@ export function QpsAssetsBrowser(props: { enabled: boolean; note?: string }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
-      <Card className="h-[720px]">
+    <div className="grid gap-4 2xl:h-[calc(100dvh-13rem)] 2xl:min-h-[34rem] 2xl:grid-cols-[260px_minmax(0,1fr)_300px]">
+      <Card className="flex min-h-[24rem] min-w-0 flex-col 2xl:h-full">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between gap-2 text-base">
             Folders
@@ -209,8 +210,8 @@ export function QpsAssetsBrowser(props: { enabled: boolean; note?: string }) {
             </Badge>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[660px] px-3 pb-3">
+        <CardContent className="min-h-0 flex-1 p-0">
+          <ScrollArea className="h-full px-3 pb-3">
             <div className="flex flex-col gap-1">
               <Button
                 type="button"
@@ -227,7 +228,7 @@ export function QpsAssetsBrowser(props: { enabled: boolean; note?: string }) {
         </CardContent>
       </Card>
 
-      <Card className="h-[720px]">
+      <Card className="flex min-h-[32rem] min-w-0 flex-col 2xl:h-full">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between gap-3 text-base">
             Gallery
@@ -235,8 +236,8 @@ export function QpsAssetsBrowser(props: { enabled: boolean; note?: string }) {
           </CardTitle>
           <Input placeholder="Filter files…" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[612px] px-4 pb-4">
+        <CardContent className="min-h-0 flex-1 p-0">
+          <ScrollArea className="h-full px-4 pb-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {galleryEntries.map((entry) => {
                 const isSelected = selectedAsset === entry.path;
@@ -281,14 +282,14 @@ export function QpsAssetsBrowser(props: { enabled: boolean; note?: string }) {
         </CardContent>
       </Card>
 
-      <Card className="h-[720px]">
+      <Card className="flex min-h-[24rem] min-w-0 flex-col 2xl:h-full">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center justify-between gap-2 text-base">
             Details
             {meta?.kind ? <Badge variant="secondary">{meta.kind}</Badge> : null}
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="min-h-0 flex-1 space-y-4 overflow-auto">
           {busy ? <StatePanel kind="loading" size="sm" loadingLabel="Loading…" /> : null}
           {error ? <StatePanel kind="error" title="QPS toolkit error" description={error} /> : null}
           {selectedAsset ? (
@@ -296,7 +297,7 @@ export function QpsAssetsBrowser(props: { enabled: boolean; note?: string }) {
               <div className="font-mono text-xs text-muted-foreground">{selectedAsset}</div>
               {meta?.stat ? (
                 <div className="text-xs text-muted-foreground">
-                  {meta.stat.size} bytes · {new Date(meta.stat.mtimeMs).toLocaleString()}
+                  {meta.stat.size} bytes · {formatFileTimestamp(meta.stat.mtimeMs)}
                 </div>
               ) : null}
             </div>

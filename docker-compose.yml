@@ -1,20 +1,4 @@
 services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "${POSTGRES_PORT}:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   control-api:
     build:
       context: .
@@ -22,6 +6,8 @@ services:
     environment:
       PORT: 4000
       CONTROL_DATA_ROOT: ${CONTROL_DATA_ROOT}
+      CONTROL_DB_PATH: ${CONTROL_DB_PATH:-/data/control/control-api.sqlite}
+      CONTROL_BOOTSTRAP_FROM_JSON: ${CONTROL_BOOTSTRAP_FROM_JSON:-true}
       ENABLE_QPS_TOOLKIT: ${ENABLE_QPS_TOOLKIT}
       MCP_QPS_TOOLKIT_URL: http://mcp-qps-toolkit:7050/mcp
       MCP_TIMEOUT_MS: ${MCP_TIMEOUT_MS:-15000}
@@ -30,8 +16,6 @@ services:
         [{"name":"mcp-playwright","url":"http://mcp-playwright:7010/mcp"},{"name":"mcp-markitdown","url":"http://mcp-markitdown:7020/mcp"},{"name":"mcp-textops","url":"http://mcp-textops:7030/mcp"},{"name":"mcp-assets","url":"http://mcp-assets:7040/mcp"}]
     ports:
       - "${CONTROL_API_PORT}:4000"
-    depends_on:
-      - postgres
     volumes:
       - control-data:${CONTROL_DATA_ROOT}
     healthcheck:
@@ -179,7 +163,6 @@ services:
       retries: 5
 
 volumes:
-  postgres-data:
   storage-data:
   assets-data:
   control-data:

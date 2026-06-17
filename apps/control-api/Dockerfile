@@ -1,5 +1,6 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
+RUN apk add --no-cache python3 make g++
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 RUN node -e "const fs=require('fs'); const p=require('./package.json'); delete p.devDependencies; p.scripts={}; fs.writeFileSync('package.json', JSON.stringify(p));"
@@ -24,6 +25,7 @@ RUN pnpm --filter @qlabs/control-api build
 FROM node:20-alpine
 WORKDIR /app/apps/control-api
 ENV NODE_ENV=production
+RUN apk add --no-cache libstdc++ && mkdir -p /data/control
 COPY --from=build /app/apps/control-api/dist dist
 COPY --from=build /app/packages/contracts /app/packages/contracts
 COPY --from=build /app/packages/contracts/node_modules /app/packages/contracts/node_modules

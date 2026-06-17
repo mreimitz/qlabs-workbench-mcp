@@ -43,8 +43,10 @@ Primary gaps:
 - Security: no auth boundary, no CSRF protection, weak upload validation, no
   rate limiting, Playwright can browse arbitrary URLs, MarkItDown disables DNS
   rebinding protection.
-- Persistence: Postgres exists in Compose but registry, runs, and asset metadata
-  remain file-backed JSON.
+- Persistence: the local Docker Desktop deployment should use SQLite in the
+  Control API Docker volume for registry and run records. File-backed JSON is a
+  bootstrap/import source only, not the normal runtime store. Avoid Postgres
+  unless the deployment model changes to shared infrastructure.
 - QPS write safety: the QPS metadata editor can modify mounted toolkit source;
   this needs explicit dev write mode, atomic writes, and UI guardrails.
 - Ops: no structured logs, request IDs, readiness/dependency health, metrics, or
@@ -65,6 +67,9 @@ Add these implementation defaults:
 - Standard health shape:
   `{ "ok": boolean, "service": string, "version": string, "configured": boolean, "dependencies": object, "warnings": string[] }`
 - New env vars:
+  - `CONTROL_DB_PATH`, default `${CONTROL_DATA_ROOT}/control-api.sqlite`.
+  - `CONTROL_BOOTSTRAP_FROM_JSON=true|false`, default `true` for one-time local
+    migration from existing `registry.json` and `runs.json`.
   - `QPS_TOOLKIT_WRITE_MODE=read-only|metadata`, default `read-only`.
   - `PLAYWRIGHT_ALLOWED_ORIGINS`, default `https://example.com`.
   - `PLAYWRIGHT_BLOCK_PRIVATE_NETWORKS=true`.
@@ -135,10 +140,11 @@ Files: `apps/control-api/src/*`, migrations folder, contracts package.
   `mcp-client.ts`, and `health.ts`.
 - [ ] Add request validation for `/runs` and `/servers/:name`.
 - [ ] Add timeouts around MCP list and call operations.
-- [ ] Persist registry and run records in Postgres using simple SQL migrations
-  and `pg`.
-- [ ] Keep file-backed mode only as an explicit fallback for local bootstrap if
-  Postgres is unavailable.
+- [ ] Persist registry and run records in SQLite using idempotent SQL
+  migrations stored with the Control API.
+- [ ] Bootstrap from existing `registry.json` and `runs.json` only when
+  explicitly enabled for local migration; never silently fall back to file JSON
+  for normal runtime persistence.
 
 Acceptance: API remains compatible, run records survive restarts, and
 concurrent smoke/eval runs do not corrupt registry state.
@@ -258,7 +264,7 @@ Files: Dockerfiles, `docker-compose.yml`, README.
 - [ ] Add healthcheck blocks for every service.
 - [ ] Add structured JSON logging with request IDs.
 - [ ] Document ports and remove unused envs.
-- [ ] Add readiness checks for Postgres, QPS mount, storage, and assets.
+- [ ] Add readiness checks for SQLite, QPS mount, storage, and assets.
 
 Acceptance: `docker compose ps` shows health states; logs can correlate one UI
 request through Control API to MCP execution.
@@ -279,8 +285,9 @@ request through Control API to MCP execution.
 
 - Refactoring large QPS/UI files can change behavior. Mitigate with
   characterization tests before functional changes.
-- Postgres migration can slow local setup. Mitigate with clear Compose health
-  output and a file-backed fallback during bootstrap.
+- SQLite migration can fail if the volume path is not writable. Mitigate with
+  startup checks, clear health output, and one-time JSON bootstrap for existing
+  local data.
 - QPS metadata editing can damage the source checkout. Mitigate with read-only
   default, explicit metadata mode, atomic writes, and tests.
 - Evals can become brittle. Mitigate with JSON-path assertions and stable
