@@ -1,0 +1,129 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  control-api:
+    build:
+      context: .
+      dockerfile: apps/control-api/Dockerfile
+    environment:
+      PORT: 4000
+      CONTROL_DATA_ROOT: ${CONTROL_DATA_ROOT}
+      ENABLE_QPS_TOOLKIT: ${ENABLE_QPS_TOOLKIT}
+      MCP_QPS_TOOLKIT_URL: http://mcp-qps-toolkit:7050/mcp
+      SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
+      MCP_SERVERS_JSON: >
+        [{"name":"mcp-playwright","url":"http://mcp-playwright:7010/mcp"},{"name":"mcp-markitdown","url":"http://mcp-markitdown:7020/mcp"},{"name":"mcp-textops","url":"http://mcp-textops:7030/mcp"},{"name":"mcp-assets","url":"http://mcp-assets:7040/mcp"}]
+    ports:
+      - "${CONTROL_API_PORT}:4000"
+    depends_on:
+      - postgres
+    volumes:
+      - control-data:${CONTROL_DATA_ROOT}
+
+  storage-api:
+    build:
+      context: .
+      dockerfile: apps/storage-api/Dockerfile
+    environment:
+      PORT: 4100
+      STORAGE_ROOT: ${STORAGE_ROOT}
+      SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
+    ports:
+      - "${STORAGE_API_PORT}:4100"
+    volumes:
+      - storage-data:${STORAGE_ROOT}
+
+  admin-ui:
+    build:
+      context: .
+      dockerfile: apps/admin-ui/Dockerfile
+    environment:
+      PORT: 3000
+      CONTROL_API_URL: http://control-api:4000
+      STORAGE_API_URL: http://storage-api:4100
+      ASSETS_API_URL: http://mcp-assets:7040
+      ENABLE_QPS_TOOLKIT: ${ENABLE_QPS_TOOLKIT}
+    ports:
+      - "${ADMIN_UI_PORT}:3000"
+    depends_on:
+      - control-api
+      - storage-api
+
+  mcp-textops:
+    build:
+      context: .
+      dockerfile: servers/mcp-textops/Dockerfile
+    environment:
+      PORT: 7030
+    ports:
+      - "${MCP_TEXTOPS_PORT}:7030"
+
+  mcp-assets:
+    build:
+      context: .
+      dockerfile: servers/mcp-assets/Dockerfile
+    environment:
+      PORT: 7040
+      ASSETS_ROOT: ${ASSETS_ROOT}
+      SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
+    ports:
+      - "${MCP_ASSETS_PORT}:7040"
+    volumes:
+      - assets-data:${ASSETS_ROOT}
+
+  mcp-playwright:
+    build:
+      context: .
+      dockerfile: servers/mcp-playwright/Dockerfile
+    environment:
+      PORT: 7010
+      STORAGE_ROOT: ${STORAGE_ROOT}
+    ports:
+      - "${MCP_PLAYWRIGHT_PORT}:7010"
+    volumes:
+      - storage-data:${STORAGE_ROOT}
+
+  mcp-markitdown:
+    build:
+      context: .
+      dockerfile: servers/mcp-markitdown/Dockerfile
+    environment:
+      PORT: 7020
+      STORAGE_ROOT: ${STORAGE_ROOT}
+    ports:
+      - "${MCP_MARKITDOWN_PORT}:7020"
+    volumes:
+      - storage-data:${STORAGE_ROOT}
+
+  mcp-qps-toolkit:
+    profiles: ["qps"]
+    build:
+      context: .
+      dockerfile: servers/mcp-qps-toolkit/Dockerfile
+    environment:
+      PORT: 7050
+      QPS_TOOLKIT_PLUGIN_ROOT: /qps-toolkit/plugin
+    ports:
+      - "${MCP_QPS_TOOLKIT_PORT}:7050"
+    volumes:
+      - type: bind
+        source: ${QPS_TOOLKIT_ROOT:-./local/qps-toolkit}
+        target: /qps-toolkit
+        read_only: true
+        bind:
+          create_host_path: true
+
+volumes:
+  postgres-data:
+  storage-data:
+  assets-data:
+  control-data:

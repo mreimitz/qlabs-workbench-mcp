@@ -1,0 +1,28 @@
+{
+  "name": "qlabs-workbench-mcp",
+  "private": true,
+  "packageManager": "pnpm@9.12.3",
+  "workspaces": [
+    "apps/*",
+    "servers/*",
+    "packages/*"
+  ],
+  "pnpm": {
+    "overrides": {
+      "@brand/cli": "file:vendor/brand-ui/v1.0.0/brand-cli-1.0.0.tgz",
+      "@brand/tokens": "file:vendor/brand-ui/v1.0.0/brand-tokens-1.0.0.tgz",
+      "@brand/ui": "file:vendor/brand-ui/v1.0.0/brand-ui-1.0.0.tgz"
+    }
+  },
+  "scripts": {
+    "setup:local": "node scripts/bootstrap-local.mjs",
+    "compose:up": "docker compose --env-file .env -f docker-compose.yml up -d --build",
+    "compose:up:qps": "docker compose --profile qps --env-file .env -f docker-compose.yml up -d --build",
+    "smoke": "node scripts/smoke.mjs",
+    "dev": "pnpm -r dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "format": "pnpm -r format"
+  }
+}

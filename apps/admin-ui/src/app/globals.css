@@ -1,0 +1,11 @@
+@import "../../node_modules/@brand/tokens/src/themes.css";
+
+@source "../../node_modules/@brand/ui/dist";
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+}
