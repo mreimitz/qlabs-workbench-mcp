@@ -1,2 +1,2 @@
-mcp[cli]
-markitdown[all]
+mcp[cli]==1.27.2
+markitdown[all]==0.1.6

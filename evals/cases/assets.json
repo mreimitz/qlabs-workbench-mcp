@@ -1,0 +1,24 @@
+[
+  {
+    "server": "mcp-assets",
+    "tool": "assets_search",
+    "input": { "keyword": "hero" },
+    "expect": { "contains": "hero-demo.svg" }
+  },
+  {
+    "server": "mcp-assets",
+    "tool": "assets_add",
+    "input": {
+      "filename": "eval-asset.svg",
+      "keyword": "eval",
+      "contentBase64": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4="
+    },
+    "expect": { "path": "run.response.ok", "equals": true }
+  },
+  {
+    "server": "mcp-assets",
+    "tool": "assets_tag",
+    "input": { "filename": "eval-asset.svg", "keyword": "tagged" },
+    "expect": { "path": "run.response.ok", "equals": true }
+  }
+]

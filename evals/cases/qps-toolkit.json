@@ -1,0 +1,104 @@
+[
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_route_request",
+    "input": { "query": "build a qlik onepager landing page", "level": "command", "top": 1 },
+    "expect": { "path": "run.response.action", "equals": "route" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_resolve_asset",
+    "input": { "kind": "icon", "query": "cloud analytics" },
+    "expect": { "path": "run.response.kind", "equals": "icon" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_pick_hero",
+    "input": { "copy": "Qlik Cloud Analytics dashboards for sales teams" },
+    "expect": { "path": "run.response.primary.type", "equals": "bento-card" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_pick_html_icon",
+    "input": { "query": "cloud analytics", "size": 24 },
+    "expect": { "contains": "<svg" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_pick_component",
+    "input": { "brief": "hero section for marketing landing page", "context": "marketing" },
+    "expect": { "path": "run.response.ok", "equals": true }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_pick_layout",
+    "input": { "brief": "executive dashboard for revenue pipeline", "target": "enterprise" },
+    "expect": { "path": "run.response.primary.slug", "equals": "executive-dashboard" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_pick_diagram_icons",
+    "input": { "nodes": [{ "label": "Data warehouse", "role": "storage" }] },
+    "expect": { "path": "run.response.summary.matched", "equals": 1 }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_get_policy",
+    "input": { "policy": "anti-ai-writing", "section": "banned-phrases" },
+    "expect": { "path": "run.response.policy", "equals": "anti-ai-writing" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_get_tokens",
+    "input": { "select": ["color.primary.green"], "format": "flat", "resolve_refs": true },
+    "expect": { "path": "run.response.tokens", "equals": { "color.primary.green": "#009845" } }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_validate_copy",
+    "input": { "content": "We will leverage cutting-edge technology to unlock seamless experiences." },
+    "expect": { "path": "run.response.pass", "equals": false }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "qps_lint_artifact",
+    "input": { "content": "In conclusion, Sense Cloud is a robust platform." },
+    "expect": { "path": "run.response.p0.2.id", "equals": "qlik-product-naming" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "resolve_asset",
+    "input": { "kind": "icon", "query": "cloud analytics" },
+    "expect": { "path": "run.response.kind", "equals": "icon" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "pick_hero",
+    "input": { "copy": "Qlik Cloud Analytics dashboards for sales teams" },
+    "expect": { "path": "run.response.mode", "equals": "product" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "pick_component",
+    "input": { "brief": "hero section for marketing landing page", "context": "marketing" },
+    "expect": { "path": "run.response.ok", "equals": true }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "pick_layout",
+    "input": { "brief": "executive dashboard for revenue pipeline", "target": "enterprise" },
+    "expect": { "path": "run.response.ok", "equals": true }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "pick_html_icon",
+    "input": { "query": "cloud analytics", "size": 24 },
+    "expect": { "contains": "<svg" }
+  },
+  {
+    "server": "mcp-qps-toolkit",
+    "tool": "pick_diagram_icons",
+    "input": { "nodes": [{ "label": "Data warehouse", "role": "storage" }] },
+    "expect": { "path": "run.response.ok", "equals": true }
+  }
+]

@@ -49,6 +49,12 @@ This document is the single source of truth for tool behavior.
 
 ## mcp-qps-toolkit
 
+QPS MCP tools own deterministic, non-LLM work that can be executed without prompt reasoning: routing, catalog lookup, scoring, token/policy extraction, copy linting, and asset metadata browsing. The QPS plugin remains responsible for LLM-dependent elicitation, narrative generation, artifact synthesis, and subjective design decisions.
+
+Canonical tools use the `qps_*` prefix. Short aliases such as `pick_hero` and `resolve_asset` are compatibility aliases and should stay behavior-equivalent to their canonical counterparts until a documented deprecation removes them.
+
+Mounted toolkit metadata is read-only by default. `PUT /assets/meta` is enabled only when `QPS_TOOLKIT_WRITE_MODE=metadata`; writes must be treated as dev operations against the mounted source checkout.
+
 - `qps_route_request`
   - Input: `{ "query": string, "level"?: "command" | "skill", "top"?: number }`
   - Output: JSON `{ "winner": ..., "confidence": string, "action": string, "ranked": ... }`
@@ -67,3 +73,15 @@ This document is the single source of truth for tool behavior.
 - `qps_pick_layout`
   - Input: `{ "brief": string, "task"?: string, "target"?: "enterprise" | "marketing" | "wireframe" | "deck" }`
   - Output: JSON `{ "ok": boolean, "primary": object | null, "confidence": number, "candidates": object[] }`
+- `qps_get_policy`
+  - Input: `{ "policy": "anti-ai-writing" | "no-fake-content" | "qlik-product-naming" | "no-assumptions" | "evidence-citation" | "creative-vs-floor" | "composition-floors" | "elicitation", "section"?: string }`
+  - Output: JSON `{ "ok": true, "policy": string, "title": string, "status": string | null, "rules": string[], "citations": [{ "path": string, "line_start": number, "line_end": number }] }`
+- `qps_get_tokens`
+  - Input: `{ "select"?: string[], "resolve_refs"?: boolean, "format"?: "object" | "flat" }`
+  - Output: JSON `{ "ok": true, "source_path": string, "format": string, "resolve_refs": boolean, "tokens": object }`
+- `qps_validate_copy`
+  - Input: `{ "content": string, "checks"?: ("anti_ai" | "fake_content" | "qlik_naming" | "template_residue")[] }`
+  - Output: JSON `{ "ok": true, "pass": boolean, "counts": { "p0": number, "p1": number, "p2": number }, "findings": [{ "severity": "P0" | "P1" | "P2", "id": string, "message": string, "fix": string, "line": number, "snippet": string }] }`
+- `qps_lint_artifact`
+  - Input: `{ "content": string }`
+  - Output: JSON `{ "ok": true, "pass": boolean, "p0": object[], "p1": object[], "p2": object[], "findings": object[] }`

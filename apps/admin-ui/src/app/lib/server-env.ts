@@ -1,9 +1,6 @@
-const requiredEnv = (name: string) => {
+const envOrDefault = (name: string, fallback: string) => {
   const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
+  return value && value.length > 0 ? value : fallback;
 };
 
 const envFlag = (value: string | undefined, fallback = false) => {
@@ -12,8 +9,9 @@ const envFlag = (value: string | undefined, fallback = false) => {
 };
 
 export const getServerEnv = () => ({
-  controlApiUrl: requiredEnv("CONTROL_API_URL"),
-  storageApiUrl: requiredEnv("STORAGE_API_URL"),
-  assetsApiUrl: requiredEnv("ASSETS_API_URL"),
+  controlApiUrl: envOrDefault("CONTROL_API_URL", "http://localhost:4000"),
+  storageApiUrl: envOrDefault("STORAGE_API_URL", "http://localhost:4100"),
+  assetsApiUrl: envOrDefault("ASSETS_API_URL", "http://localhost:7040"),
   enableQpsToolkit: envFlag(process.env.ENABLE_QPS_TOOLKIT, false),
+  qpsToolkitApiUrl: process.env.QPS_TOOLKIT_API_URL ?? "http://localhost:7050",
 });

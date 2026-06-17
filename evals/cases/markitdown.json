@@ -1,0 +1,8 @@
+[
+  {
+    "server": "mcp-markitdown",
+    "tool": "markitdown_convert",
+    "input": { "input_path": "docs/example.html", "output_path": "docs/eval-example.md" },
+    "expect": { "path": "run.response.ok", "equals": true }
+  }
+]

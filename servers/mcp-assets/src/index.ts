@@ -4,6 +4,7 @@ import express, { Request, Response } from "express";
 import * as z from "zod/v4";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { asyncRoute, createErrorResponse, parseBase64Strict, withRequestId } from "@qlabs/server-utils";
 
 const requiredEnv = (name: string) => {
   const value = process.env[name];
@@ -21,6 +22,7 @@ const envFlag = (value: string | undefined, fallback = false) => {
 const port = Number.parseInt(process.env.PORT ?? "7040", 10);
 const assetsRoot = requiredEnv("ASSETS_ROOT");
 const seedDemoContent = envFlag(process.env.SEED_DEMO_CONTENT, true);
+const maxUploadBytes = Number.parseInt(process.env.MAX_UPLOAD_BYTES ?? "10485760", 10);
 const indexPath = path.posix.join(assetsRoot, "index.json");
 
 type Index = { keywords: Record<string, string[]> };
@@ -104,6 +106,21 @@ const detectContentType = (filename: string) => {
   return "application/octet-stream";
 };
 
+const normalizeFlatFilename = (filename: string) => {
+  const trimmed = filename.trim();
+  const safeName = path.posix.basename(trimmed);
+  if (!safeName || safeName !== trimmed || trimmed.includes("\\") || trimmed.includes("/")) {
+    throw new Error("Invalid filename");
+  }
+  return safeName;
+};
+
+const assertAssetExists = async (filename: string) => {
+  const assetPath = path.posix.join(assetsRoot, filename);
+  await fs.access(assetPath);
+  return assetPath;
+};
+
 const seedAssets = async () => {
   if (!seedDemoContent) return;
 
@@ -169,9 +186,9 @@ const getServer = () => {
     },
     async (args: { filename: string; keyword: string; contentBase64: string }) => {
       await ensureRoot();
-      const safeName = path.posix.basename(args.filename);
+      const safeName = normalizeFlatFilename(args.filename);
       const assetPath = path.posix.join(assetsRoot, safeName);
-      const buf = Buffer.from(args.contentBase64, "base64");
+      const buf = parseBase64Strict(args.contentBase64, maxUploadBytes);
       await fs.writeFile(assetPath, buf);
       await addToIndex(args.keyword, safeName);
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, filename: safeName, bytesWritten: buf.byteLength }) }] };
@@ -185,7 +202,8 @@ const getServer = () => {
       inputSchema: { filename: z.string(), keyword: z.string() },
     },
     async (args: { filename: string; keyword: string }) => {
-      const safeName = path.posix.basename(args.filename);
+      const safeName = normalizeFlatFilename(args.filename);
+      await assertAssetExists(safeName);
       await addToIndex(args.keyword, safeName);
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, filename: safeName }) }] };
     }
@@ -196,6 +214,7 @@ const getServer = () => {
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
+app.use(withRequestId());
 
 await seedAssets();
 
@@ -216,7 +235,7 @@ app.get("/assets", async (req: Request, res: Response) => {
   });
 });
 
-app.post("/assets", async (req: Request, res: Response) => {
+app.post("/assets", asyncRoute(async (req: Request, res: Response) => {
   const filename = typeof req.body?.filename === "string" ? req.body.filename : "";
   const contentBase64 = typeof req.body?.contentBase64 === "string" ? req.body.contentBase64 : "";
   const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords.filter((value: unknown) => typeof value === "string") : [];
@@ -227,9 +246,9 @@ app.post("/assets", async (req: Request, res: Response) => {
   }
 
   await ensureRoot();
-  const safeName = path.posix.basename(filename);
+  const safeName = normalizeFlatFilename(filename);
   const assetPath = path.posix.join(assetsRoot, safeName);
-  const buf = Buffer.from(contentBase64, "base64");
+  const buf = parseBase64Strict(contentBase64, maxUploadBytes);
   await fs.writeFile(assetPath, buf);
 
   for (const keyword of keywords) {
@@ -239,15 +258,16 @@ app.post("/assets", async (req: Request, res: Response) => {
   const assets = await listAssets();
   const asset = assets.find((entry) => entry.filename === safeName);
   res.json({ ok: true, asset, bytesWritten: buf.byteLength });
-});
+}));
 
-app.post("/assets/:filename/tags", async (req: Request, res: Response) => {
-  const safeName = path.posix.basename(req.params.filename);
+app.post("/assets/:filename/tags", asyncRoute(async (req: Request, res: Response) => {
+  const safeName = normalizeFlatFilename(req.params.filename);
   const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords.filter((value: unknown) => typeof value === "string") : [];
   if (keywords.length === 0) {
     res.status(400).json({ error: "keywords are required" });
     return;
   }
+  await assertAssetExists(safeName);
 
   for (const keyword of keywords) {
     await addToIndex(keyword, safeName);
@@ -256,15 +276,15 @@ app.post("/assets/:filename/tags", async (req: Request, res: Response) => {
   const assets = await listAssets();
   const asset = assets.find((entry) => entry.filename === safeName);
   res.json({ ok: true, asset });
-});
+}));
 
-app.get("/asset-files/:filename", async (req: Request, res: Response) => {
-  const safeName = path.posix.basename(req.params.filename);
-  const assetPath = path.posix.join(assetsRoot, safeName);
+app.get("/asset-files/:filename", asyncRoute(async (req: Request, res: Response) => {
+  const safeName = normalizeFlatFilename(req.params.filename);
+  const assetPath = await assertAssetExists(safeName);
   const file = await fs.readFile(assetPath);
   res.setHeader("content-type", detectContentType(safeName));
   res.send(file);
-});
+}));
 
 app.post("/mcp", async (req: Request, res: Response) => {
   const server = getServer();
@@ -275,6 +295,23 @@ app.post("/mcp", async (req: Request, res: Response) => {
     transport.close();
     server.close();
   });
+});
+
+app.use((error: unknown, _req: Request, res: Response, _next: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/too large/i.test(message)) {
+    createErrorResponse(res, 413, "PAYLOAD_TOO_LARGE", message);
+    return;
+  }
+  if (/invalid filename|invalid base64/i.test(message)) {
+    createErrorResponse(res, 400, "BAD_REQUEST", message);
+    return;
+  }
+  if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+    createErrorResponse(res, 404, "NOT_FOUND", "Asset not found");
+    return;
+  }
+  createErrorResponse(res, 500, "INTERNAL_ERROR", message);
 });
 
 app.listen(port, "0.0.0.0");

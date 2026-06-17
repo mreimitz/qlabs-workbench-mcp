@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+reports
+.git
+.trae
+apps/admin-ui/tsconfig.tsbuildinfo
+release
+roadmap

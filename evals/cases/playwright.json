@@ -1,0 +1,14 @@
+[
+  {
+    "server": "mcp-playwright",
+    "tool": "pw_get_title",
+    "input": { "url": "http://admin-ui:3000" },
+    "expect": { "path": "run.response", "equals": "QLabs Workbench" }
+  },
+  {
+    "server": "mcp-playwright",
+    "tool": "pw_screenshot",
+    "input": { "url": "http://admin-ui:3000", "filename": "eval-example.png" },
+    "expect": { "path": "run.response.path", "equals": "playwright/eval-example.png" }
+  }
+]

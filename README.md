@@ -43,9 +43,10 @@ Local Docker Desktop stack that runs multiple MCP servers plus an admin UI, file
 - QPS is now opt-in.
 - Set `ENABLE_QPS_TOOLKIT=true` in `.env` and start the profiled stack:
   - `pnpm compose:up:qps`
-- The default local mount is `./local/qps-toolkit`; point `QPS_TOOLKIT_ROOT` at a real qps-toolkit checkout if you want the QPS tools fully active.
+- The default local mount is `./local/qps-toolkit`; point `QPS_TOOLKIT_ROOT` at a real qps-toolkit checkout (for example your local `qps-toolkit` repo) if you want the QPS tools and shared assets fully active.
 - When enabled without mounted toolkit content, the admin UI marks the integration as `Setup required` instead of treating it as a broken service.
 - When `ENABLE_QPS_TOOLKIT=false`, the default stack omits QPS entirely from the service registry and endpoints list.
+- The Admin UI “Assets” view can browse `plugin/shared/assets` (folder tree + gallery + detail panel) and can update tags in the pack/metadata JSONs when the mount is writable.
 
 ## Local env validation
 

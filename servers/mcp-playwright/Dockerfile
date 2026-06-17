@@ -1,7 +1,8 @@
 FROM mcr.microsoft.com/playwright:v1.46.0-jammy AS deps
 WORKDIR /app
 RUN npm i -g pnpm@9.12.3
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+RUN node -e "const fs=require('fs'); const p=require('./package.json'); delete p.devDependencies; p.scripts={}; fs.writeFileSync('package.json', JSON.stringify(p));"
 COPY servers/mcp-playwright/package.json servers/mcp-playwright/package.json
 RUN pnpm install --filter @qlabs/mcp-playwright...
 
@@ -11,7 +12,7 @@ RUN npm i -g pnpm@9.12.3
 COPY --from=deps /app/node_modules /app/node_modules
 COPY --from=deps /app/servers/mcp-playwright/node_modules /app/servers/mcp-playwright/node_modules
 COPY --from=deps /app/pnpm-lock.yaml /app/pnpm-lock.yaml
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY servers/mcp-playwright servers/mcp-playwright
 RUN pnpm --filter @qlabs/mcp-playwright build
 

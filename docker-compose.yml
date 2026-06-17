@@ -9,6 +9,11 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   control-api:
     build:
@@ -19,6 +24,7 @@ services:
       CONTROL_DATA_ROOT: ${CONTROL_DATA_ROOT}
       ENABLE_QPS_TOOLKIT: ${ENABLE_QPS_TOOLKIT}
       MCP_QPS_TOOLKIT_URL: http://mcp-qps-toolkit:7050/mcp
+      MCP_TIMEOUT_MS: ${MCP_TIMEOUT_MS:-15000}
       SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
       MCP_SERVERS_JSON: >
         [{"name":"mcp-playwright","url":"http://mcp-playwright:7010/mcp"},{"name":"mcp-markitdown","url":"http://mcp-markitdown:7020/mcp"},{"name":"mcp-textops","url":"http://mcp-textops:7030/mcp"},{"name":"mcp-assets","url":"http://mcp-assets:7040/mcp"}]
@@ -28,6 +34,11 @@ services:
       - postgres
     volumes:
       - control-data:${CONTROL_DATA_ROOT}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   storage-api:
     build:
@@ -37,10 +48,16 @@ services:
       PORT: 4100
       STORAGE_ROOT: ${STORAGE_ROOT}
       SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
     ports:
       - "${STORAGE_API_PORT}:4100"
     volumes:
       - storage-data:${STORAGE_ROOT}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   admin-ui:
     build:
@@ -48,15 +65,22 @@ services:
       dockerfile: apps/admin-ui/Dockerfile
     environment:
       PORT: 3000
+      HOSTNAME: 0.0.0.0
       CONTROL_API_URL: http://control-api:4000
       STORAGE_API_URL: http://storage-api:4100
       ASSETS_API_URL: http://mcp-assets:7040
+      QPS_TOOLKIT_API_URL: http://mcp-qps-toolkit:7050
       ENABLE_QPS_TOOLKIT: ${ENABLE_QPS_TOOLKIT}
     ports:
       - "${ADMIN_UI_PORT}:3000"
     depends_on:
       - control-api
       - storage-api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mcp-textops:
     build:
@@ -66,6 +90,11 @@ services:
       PORT: 7030
     ports:
       - "${MCP_TEXTOPS_PORT}:7030"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7030/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mcp-assets:
     build:
@@ -75,10 +104,16 @@ services:
       PORT: 7040
       ASSETS_ROOT: ${ASSETS_ROOT}
       SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
     ports:
       - "${MCP_ASSETS_PORT}:7040"
     volumes:
       - assets-data:${ASSETS_ROOT}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7040/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mcp-playwright:
     build:
@@ -87,10 +122,18 @@ services:
     environment:
       PORT: 7010
       STORAGE_ROOT: ${STORAGE_ROOT}
+      PLAYWRIGHT_ALLOWED_ORIGINS: ${PLAYWRIGHT_ALLOWED_ORIGINS:-https://example.com}
+      PLAYWRIGHT_BLOCK_PRIVATE_NETWORKS: ${PLAYWRIGHT_BLOCK_PRIVATE_NETWORKS:-true}
+      PLAYWRIGHT_TIMEOUT_MS: ${PLAYWRIGHT_TIMEOUT_MS:-15000}
     ports:
       - "${MCP_PLAYWRIGHT_PORT}:7010"
     volumes:
       - storage-data:${STORAGE_ROOT}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mcp-markitdown:
     build:
@@ -99,10 +142,18 @@ services:
     environment:
       PORT: 7020
       STORAGE_ROOT: ${STORAGE_ROOT}
+      MARKITDOWN_DISABLE_DNS_REBINDING_PROTECTION: ${MARKITDOWN_DISABLE_DNS_REBINDING_PROTECTION:-false}
+      MARKITDOWN_ALLOWED_HOSTS: ${MARKITDOWN_ALLOWED_HOSTS:-127.0.0.1:*,localhost:*,mcp-markitdown:*}
+      MAX_MARKITDOWN_INPUT_BYTES: ${MAX_MARKITDOWN_INPUT_BYTES:-10485760}
     ports:
       - "${MCP_MARKITDOWN_PORT}:7020"
     volumes:
       - storage-data:${STORAGE_ROOT}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7020/health', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mcp-qps-toolkit:
     profiles: ["qps"]
@@ -112,15 +163,20 @@ services:
     environment:
       PORT: 7050
       QPS_TOOLKIT_PLUGIN_ROOT: /qps-toolkit/plugin
+      QPS_TOOLKIT_WRITE_MODE: ${QPS_TOOLKIT_WRITE_MODE:-read-only}
     ports:
       - "${MCP_QPS_TOOLKIT_PORT}:7050"
     volumes:
       - type: bind
         source: ${QPS_TOOLKIT_ROOT:-./local/qps-toolkit}
         target: /qps-toolkit
-        read_only: true
         bind:
           create_host_path: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7050/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:

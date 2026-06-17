@@ -16,13 +16,27 @@
   },
   "scripts": {
     "setup:local": "node scripts/bootstrap-local.mjs",
-    "compose:up": "docker compose --env-file .env -f docker-compose.yml up -d --build",
-    "compose:up:qps": "docker compose --profile qps --env-file .env -f docker-compose.yml up -d --build",
+    "compose:up": "PLAYWRIGHT_ALLOWED_ORIGINS=${PLAYWRIGHT_ALLOWED_ORIGINS:-http://admin-ui:3000} docker compose --env-file .env -f docker-compose.yml up -d --build",
+    "compose:up:qps": "ENABLE_QPS_TOOLKIT=true QPS_TOOLKIT_ROOT=${QPS_TOOLKIT_ROOT:-../../Skills/qps-toolkit} PLAYWRIGHT_ALLOWED_ORIGINS=${PLAYWRIGHT_ALLOWED_ORIGINS:-http://admin-ui:3000} docker compose --profile qps --env-file .env -f docker-compose.yml up -d --build",
     "smoke": "node scripts/smoke.mjs",
+    "evals": "node scripts/run-evals.mjs",
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
+    "test": "pnpm test:unit",
+    "test:unit": "vitest run",
+    "test:integration": "pnpm smoke && pnpm evals",
+    "preflight": "pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit",
     "format": "pnpm -r format"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.10.2",
+    "@types/supertest": "^7.2.0",
+    "globals": "^17.6.0",
+    "supertest": "^7.2.2",
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
   }
 }

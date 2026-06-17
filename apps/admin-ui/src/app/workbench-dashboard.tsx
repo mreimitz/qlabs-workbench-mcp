@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { QpsAssetsBrowser } from "./qps-assets-browser";
 import {
   Alert,
   AlertDescription,
@@ -15,13 +16,13 @@ import {
   CardTitle,
   Input,
   Label,
-  MetricCard,
   ScrollArea,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  StatePanel,
   Separator,
   Sidebar,
   SidebarContent,
@@ -35,9 +36,10 @@ import {
   SidebarProvider,
   SidebarTrigger,
   StatusBadge,
+  ThemeSwitcher,
   Textarea,
 } from "@brand/ui";
-import { MetricGrid } from "@brand/charts";
+import { MetricCard, MetricGrid } from "@brand/charts";
 import { ColumnPicker, DataTable, FilterBar, SearchInput, type ColumnDef } from "@brand/data";
 import { FolderOpen, Home, Images, Play, Server } from "lucide-react";
 
@@ -216,6 +218,9 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
   const [assetKeywordFilter, setAssetKeywordFilter] = useState("");
   const [assetKeywords, setAssetKeywords] = useState("");
   const [assetTagDrafts, setAssetTagDrafts] = useState<Record<string, string>>({});
+  const [assetViewMode, setAssetViewMode] = useState<"qps" | "uploaded">(
+    props.initialData.dashboard.servers.some((s) => s.server.name === "mcp-qps-toolkit" && s.enabled) ? "qps" : "uploaded",
+  );
 
   const flashVariant =
     flash && /failed|error/i.test(flash)
@@ -325,6 +330,11 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
         asset.keywords.some((keyword) => keyword.toLowerCase().includes(filter)),
     );
   }, [assetKeywordFilter, dashboardData.assets.assets]);
+
+  const qpsToolkitServer = useMemo(
+    () => dashboardData.dashboard.servers.find((server) => server.server.name === "mcp-qps-toolkit") ?? null,
+    [dashboardData.dashboard.servers],
+  );
 
   const endpointEntries = useMemo(() => {
     const entries = { ...staticEndpointMap } satisfies Record<string, string>;
@@ -667,6 +677,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
           <SidebarTrigger />
           <h1 className="text-sm font-medium">{activeNavItem.label}</h1>
           <div className="ml-auto flex items-center gap-2">
+            <ThemeSwitcher themes={["qlik-bright", "qlik-dark"]} mode="dropdown" showSystem size="sm" />
             <Button variant="outline-subtle" size="sm" onClick={refreshDashboard} disabled={busy}>
               {busy ? "Refreshing..." : "Refresh"}
             </Button>
@@ -716,16 +727,22 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                 </MetricGrid>
               </section>
 
-              <section aria-label="Chart area" className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-                Chart row goes here.
-              </section>
+              <Card>
+                <CardContent className="p-6">
+                  <StatePanel
+                    kind="empty"
+                    title="Charts"
+                    description="Add a chart to visualize activity, latency, or tool usage."
+                  />
+                </CardContent>
+              </Card>
 
               <Card>
                 <CardHeader className="gap-2">
                   <CardTitle>Recent runs</CardTitle>
                   <CardDescription>Latest tool executions recorded by the control plane.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="flex flex-col gap-4">
                   <DataTable
                     columns={
                       [
@@ -735,7 +752,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                           accessorFn: (row) =>
                             `${row.serverName} ${row.toolName} ${row.error ?? ""}`.trim(),
                           cell: ({ row }) => (
-                            <div className="space-y-1">
+                            <div className="flex flex-col gap-1">
                               <div className="font-medium">
                                 {row.original.serverName} / {row.original.toolName}
                               </div>
@@ -813,7 +830,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                         </div>
                       </CardHeader>
                       <CardContent className="grid gap-4 lg:grid-cols-2">
-                        <div className="space-y-2">
+                        <div className="flex flex-col gap-2">
                           <Label>Arguments</Label>
                           <ScrollArea className="h-48 rounded-md border border-border bg-surface-muted/40 p-4">
                             <pre className="whitespace-pre-wrap break-words font-mono text-xs">
@@ -821,7 +838,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                             </pre>
                           </ScrollArea>
                         </div>
-                        <div className="space-y-2">
+                        <div className="flex flex-col gap-2">
                           <Label>Response / error</Label>
                           <ScrollArea className="h-48 rounded-md border border-border bg-surface-muted/40 p-4">
                             <pre className="whitespace-pre-wrap break-words font-mono text-xs">
@@ -852,14 +869,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                           accessorKey: "url",
                           header: "URL",
                           cell: ({ row }) => (
-                            <a
-                              href={row.original.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="break-all font-mono text-xs text-primary underline-offset-4 hover:underline"
-                            >
-                              {row.original.url}
-                            </a>
+                            <span className="break-all font-mono text-xs text-foreground">{row.original.url}</span>
                           ),
                         },
                         {
@@ -911,7 +921,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                     <Badge variant="secondary">Enabled {dashboardData.dashboard.summary.enabledServers}</Badge>
                     <Badge variant="secondary">Disabled {dashboardData.dashboard.summary.disabledServers}</Badge>
                     <Badge variant="warning">Setup {dashboardData.dashboard.summary.setupRequiredServers}</Badge>
-                    <Badge variant="destructive">Attention {dashboardData.dashboard.diagnostics.attentionCount}</Badge>
+                    <Badge variant="secondary">Attention {dashboardData.dashboard.diagnostics.attentionCount}</Badge>
                   </div>
                 </div>
               </CardHeader>
@@ -924,7 +934,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                         header: "Server",
                         accessorFn: (row) => `${row.server.name} ${row.server.url}`,
                         cell: ({ row }) => (
-                          <div className="space-y-1">
+                            <div className="flex flex-col gap-1">
                             <div className="font-medium">{row.original.server.name}</div>
                             <div className="font-mono text-xs text-muted-foreground">
                               {row.original.server.url}
@@ -943,7 +953,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                         header: "Status",
                         accessorFn: (row) => row.status,
                         cell: ({ row }) => (
-                          <div className="space-y-2">
+                          <div className="flex flex-col gap-2">
                             <ServerStatusBadge status={row.original.status} />
                             <p className="max-w-xs text-xs text-muted-foreground">
                               {describeServerStatus(row.original)}
@@ -1020,8 +1030,8 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                   <CardTitle>Run MCP tools</CardTitle>
                   <CardDescription>Choose a server, inspect the tool surface, and execute with explicit JSON arguments.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
+                <CardContent className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="server-select">Server</Label>
                     <Select value={selectedServer} onValueChange={setSelectedServer}>
                       <SelectTrigger id="server-select">
@@ -1037,7 +1047,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="tool-select">Tool</Label>
                     <Select value={selectedTool} onValueChange={setSelectedTool}>
                       <SelectTrigger id="tool-select">
@@ -1053,7 +1063,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="tool-args">Arguments JSON</Label>
                     <Textarea
                       id="tool-args"
@@ -1073,7 +1083,11 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                   ) : null}
 
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={runSelectedTool} disabled={busy || !selectedServer || !selectedTool || !!parsedToolArgs.error}>
+                    <Button
+                      variant="secondary"
+                      onClick={runSelectedTool}
+                      disabled={busy || !selectedServer || !selectedTool || !!parsedToolArgs.error}
+                    >
                       Run selected tool
                     </Button>
                     <Button
@@ -1100,7 +1114,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                           {activeTool.description ?? "No description available for this tool."}
                         </CardDescription>
                       </CardHeader>
-                      <CardContent className="space-y-2">
+                      <CardContent className="flex flex-col gap-2">
                         <Label>Input schema</Label>
                         <ScrollArea className="h-40 rounded-md border border-border bg-surface-muted/40 p-4">
                           <pre className="whitespace-pre-wrap break-words font-mono text-xs text-foreground">
@@ -1227,112 +1241,140 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                 <CardHeader className="gap-2">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <CardTitle>Asset registry</CardTitle>
-                      <CardDescription>Upload files once, tag them, and keep the shared keyword catalog organized.</CardDescription>
+                      <CardTitle>Assets</CardTitle>
+                      <CardDescription>Browse qps-toolkit shared assets or manage uploaded assets and keywords.</CardDescription>
                     </div>
-                    <Input
-                      className="w-72"
-                      placeholder="Filter assets by file or keyword"
-                      value={assetKeywordFilter}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) => setAssetKeywordFilter(event.target.value)}
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)_auto]">
-                  <div className="space-y-2">
-                    <Label htmlFor="asset-file">Upload asset</Label>
-                    <Input id="asset-file" type="file" onChange={uploadAsset} disabled={busy} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="asset-keywords">Keywords</Label>
-                    <Input
-                      id="asset-keywords"
-                      placeholder="hero, screenshot, dark"
-                      value={assetKeywords}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setAssetKeywords(event.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <Badge variant="secondary">
-                      {dashboardData.assets.assets.length} total asset
-                      {dashboardData.assets.assets.length === 1 ? "" : "s"}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
-                {filteredAssets.map((asset) => (
-                  <Card key={asset.filename}>
-                    <div className="border-b border-border">
-                      {isImageFile(asset.filename) ? (
-                        <div className="relative aspect-[16/10] bg-surface-muted">
-                          <Image
-                            fill
-                            unoptimized
-                            alt={asset.filename}
-                            src={`/api/assets/files/${encodeURIComponent(asset.filename)}`}
-                            className="object-cover"
-                          />
-                        </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                      <Select value={assetViewMode} onValueChange={(value) => setAssetViewMode(value as "qps" | "uploaded")}>
+                        <SelectTrigger className="w-56">
+                          <SelectValue placeholder="Asset source" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="qps">QPS toolkit</SelectItem>
+                          <SelectItem value="uploaded">Uploaded</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {assetViewMode === "uploaded" ? (
+                        <Input
+                          className="w-72"
+                          placeholder="Filter assets by file or keyword"
+                          value={assetKeywordFilter}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => setAssetKeywordFilter(event.target.value)}
+                        />
                       ) : (
-                        <div className="flex aspect-[16/10] items-center justify-center bg-surface-muted text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                          File
-                        </div>
+                        <Badge variant="secondary">
+                          {qpsToolkitServer?.configured ? "Toolkit mounted" : "Toolkit not mounted"}
+                        </Badge>
                       )}
                     </div>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">{asset.filename}</CardTitle>
-                      <CardDescription className="break-all font-mono text-xs">
-                        {asset.url}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex flex-wrap gap-2">
-                        {asset.keywords.length === 0 ? (
-                          <span className="text-sm text-muted-foreground">No keywords yet.</span>
-                        ) : (
-                          asset.keywords.map((keyword) => (
-                            <Badge key={keyword} variant="secondary">
-                              {keyword}
-                            </Badge>
-                          ))
-                        )}
+                  </div>
+                </CardHeader>
+              </Card>
+
+              {assetViewMode === "qps" ? (
+                <QpsAssetsBrowser enabled={Boolean(qpsToolkitServer?.enabled && qpsToolkitServer?.configured)} note={qpsToolkitServer?.note} />
+              ) : (
+                <>
+                  <Card>
+                    <CardHeader className="gap-2">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <CardTitle>Uploaded asset registry</CardTitle>
+                          <CardDescription>Upload files once, tag them, and keep the shared keyword catalog organized.</CardDescription>
+                        </div>
+                        <Badge variant="secondary">
+                          {dashboardData.assets.assets.length} total asset{dashboardData.assets.assets.length === 1 ? "" : "s"}
+                        </Badge>
                       </div>
-                      <Separator />
-                      <div className="flex gap-2">
+                    </CardHeader>
+                    <CardContent className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="asset-file">Upload asset</Label>
+                        <Input id="asset-file" type="file" onChange={uploadAsset} disabled={busy} />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="asset-keywords">Keywords</Label>
                         <Input
-                          placeholder="add,tags"
-                          value={assetTagDrafts[asset.filename] ?? ""}
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            setAssetTagDrafts((current) => ({
-                              ...current,
-                              [asset.filename]: event.target.value,
-                            }))
-                          }
+                          id="asset-keywords"
+                          placeholder="hero, screenshot, dark"
+                          value={assetKeywords}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => setAssetKeywords(event.target.value)}
                         />
-                        <Button
-                          variant="outline-subtle"
-                          onClick={() => addAssetTags(asset.filename)}
-                          disabled={busy}
-                        >
-                          Tag
-                        </Button>
                       </div>
                     </CardContent>
                   </Card>
-                ))}
-              </div>
 
-              {filteredAssets.length === 0 ? (
-                <Card>
-                  <CardContent className="p-6 text-sm text-muted-foreground">
-                    No assets match the current filter.
-                  </CardContent>
-                </Card>
-              ) : null}
+                  <div className="grid gap-6 md:grid-cols-2 2xl:grid-cols-3">
+                    {filteredAssets.map((asset) => (
+                      <Card key={asset.filename}>
+                        <div className="border-b border-border">
+                          {isImageFile(asset.filename) ? (
+                            <div className="relative aspect-[16/10] overflow-hidden bg-surface-muted">
+                              <Image
+                                fill
+                                unoptimized
+                                alt={asset.filename}
+                                src={`/api/assets/files/${encodeURIComponent(asset.filename)}`}
+                                className="object-cover"
+                                sizes="(min-width: 1536px) 33vw, (min-width: 768px) 50vw, 100vw"
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex aspect-[16/10] items-center justify-center bg-surface-muted text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                              File
+                            </div>
+                          )}
+                        </div>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">{asset.filename}</CardTitle>
+                          <CardDescription className="break-all font-mono text-xs">{asset.url}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-4">
+                          <div className="flex flex-wrap gap-2">
+                            {asset.keywords.length === 0 ? (
+                              <span className="text-sm text-muted-foreground">No keywords yet.</span>
+                            ) : (
+                              asset.keywords.map((keyword) => (
+                                <Badge key={keyword} variant="secondary">
+                                  {keyword}
+                                </Badge>
+                              ))
+                            )}
+                          </div>
+                          <Separator />
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="add,tags"
+                              value={assetTagDrafts[asset.filename] ?? ""}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                setAssetTagDrafts((current) => ({
+                                  ...current,
+                                  [asset.filename]: event.target.value,
+                                }))
+                              }
+                            />
+                            <Button variant="outline-subtle" onClick={() => addAssetTags(asset.filename)} disabled={busy}>
+                              Tag
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+
+                  {filteredAssets.length === 0 ? (
+                    <Card>
+                      <CardContent className="p-6">
+                        <StatePanel
+                          kind="empty"
+                          title="No assets found"
+                          description="Try a different filter, or upload a new asset and add keywords."
+                        />
+                      </CardContent>
+                    </Card>
+                  ) : null}
+                </>
+              )}
             </>
           ) : null}
 
@@ -1343,8 +1385,8 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                   <CardTitle>Folder manager</CardTitle>
                   <CardDescription>Browse the mounted storage root, create folders, and upload files into the current path.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
+                <CardContent className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="storage-path">Current path</Label>
                     <Input
                       id="storage-path"
@@ -1370,7 +1412,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
 
                   <Separator />
 
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="folder-name">Create folder</Label>
                     <div className="flex gap-2">
                       <Input
@@ -1381,13 +1423,13 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                           setFolderName(event.target.value)
                         }
                       />
-                      <Button onClick={createFolder} disabled={busy}>
+                      <Button variant="secondary" onClick={createFolder} disabled={busy}>
                         Create
                       </Button>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="storage-upload">Upload file into current path</Label>
                     <Input id="storage-upload" type="file" onChange={uploadFile} disabled={busy} />
                   </div>
@@ -1439,7 +1481,11 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
                   </CardHeader>
                   <CardContent>
                     {browseData.entries.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">This folder is empty.</p>
+                      <StatePanel
+                        kind="empty"
+                        title="This folder is empty"
+                        description="Create a folder or upload a file to populate the current path."
+                      />
                     ) : (
                       <DataTable
                         columns={
@@ -1513,13 +1559,13 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
 
 function ServerStatusBadge(props: { status: ServerStatus["status"] }) {
   if (props.status === "healthy") {
-    return <Badge variant="success">Healthy</Badge>;
+    return <StatusBadge status="complete" size="sm" />;
   }
   if (props.status === "disabled") {
-    return <Badge variant="secondary">Disabled</Badge>;
+    return <StatusBadge status="skipped" size="sm" />;
   }
   if (props.status === "setup-required") {
-    return <Badge variant="warning">Setup required</Badge>;
+    return <StatusBadge status="awaiting-approval" size="sm" />;
   }
-  return <Badge variant="destructive">Attention</Badge>;
+  return <StatusBadge status="failed" size="sm" />;
 }

@@ -3,12 +3,24 @@
     "server": "mcp-textops",
     "tool": "text_uppercase",
     "input": { "text": "abc" },
-    "expect": { "contains": "ABC" }
+    "expect": { "path": "run.response", "equals": "ABC" }
+  },
+  {
+    "server": "mcp-textops",
+    "tool": "text_lowercase",
+    "input": { "text": "ABC" },
+    "expect": { "path": "run.response", "equals": "abc" }
+  },
+  {
+    "server": "mcp-textops",
+    "tool": "text_trim",
+    "input": { "text": "  abc  " },
+    "expect": { "path": "run.response", "equals": "abc" }
   },
   {
     "server": "mcp-textops",
     "tool": "text_regex_extract",
-    "input": { "text": "a1 b2 c3", "pattern": "\\\\d" },
-    "expect": { "contains": "\"matches\"" }
+    "input": { "text": "a1 b2 c3", "pattern": "\\d" },
+    "expect": { "path": "run.response.matches.0", "equals": "1" }
   }
 ]

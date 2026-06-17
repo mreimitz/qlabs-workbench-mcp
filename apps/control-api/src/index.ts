@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { runRequestSchema } from "@qlabs/contracts";
 
 type McpServerRef = { name: string; url: string };
 type RegistryServer = McpServerRef & { enabled: boolean };
@@ -56,6 +57,7 @@ const serversJson = process.env.MCP_SERVERS_JSON ?? "[]";
 const controlDataRoot = requiredEnv("CONTROL_DATA_ROOT");
 const enableQpsToolkit = envFlag(process.env.ENABLE_QPS_TOOLKIT);
 const qpsToolkitUrl = process.env.MCP_QPS_TOOLKIT_URL ?? "http://mcp-qps-toolkit:7050/mcp";
+const mcpTimeoutMs = Number.parseInt(process.env.MCP_TIMEOUT_MS ?? "15000", 10);
 const registryPath = path.posix.join(controlDataRoot, "registry.json");
 const runsPath = path.posix.join(controlDataRoot, "runs.json");
 
@@ -130,7 +132,12 @@ const withServerClient = async <T,>(server: McpServerRef, fn: (client: Client) =
   const transport = new StreamableHTTPClientTransport(new URL(server.url));
   await client.connect(transport);
   try {
-    return await fn(client);
+    return await Promise.race([
+      fn(client),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error(`MCP operation timed out after ${mcpTimeoutMs}ms`)), mcpTimeoutMs)
+      ),
+    ]);
   } finally {
     await transport.close();
   }
@@ -261,11 +268,12 @@ app.get("/tools", async (_req: Request, res: Response) => {
 });
 
 app.post("/runs", async (req: Request, res: Response) => {
-  const { serverName, toolName, arguments: toolArguments } = req.body ?? {};
-  if (typeof serverName !== "string" || typeof toolName !== "string") {
-    res.status(400).json({ error: "serverName and toolName are required" });
+  const parsed = runRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "serverName and toolName are required", details: parsed.error.flatten() });
     return;
   }
+  const { serverName, toolName, arguments: toolArguments } = parsed.data;
 
   const registry = await ensureRegistry();
   const server = registry.servers.find((candidate) => candidate.name === serverName);
