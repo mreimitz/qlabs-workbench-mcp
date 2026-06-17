@@ -62,7 +62,9 @@ export function RunnerView(props: {
   const filteredTools = props.toolInventoryRows.filter((row) => {
     const query = props.toolFilter.trim().toLowerCase();
     if (!query) return true;
-    return `${row.serverName} ${row.toolName} ${row.description} ${row.status}`.toLowerCase().includes(query);
+    return `${row.serverName} ${row.toolName} ${row.description} ${row.status}`
+      .toLowerCase()
+      .includes(query);
   });
 
   return (
@@ -73,21 +75,29 @@ export function RunnerView(props: {
       />
 
       <div className="grid min-w-0 items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="min-w-0 self-start">
+        <Card id="runner-compose" className="min-w-0 scroll-mt-4 self-start">
           <CardHeader>
             <CardTitle>Compose run</CardTitle>
-            <CardDescription>Choose a server and tool, then provide JSON arguments.</CardDescription>
+            <CardDescription>
+              Choose a server and tool, then provide JSON arguments.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="server-select">Server</Label>
-              <Select value={props.selectedServer} onValueChange={props.onSelectServer}>
+              <Select
+                value={props.selectedServer}
+                onValueChange={props.onSelectServer}
+              >
                 <SelectTrigger id="server-select">
                   <SelectValue placeholder="Select a server" />
                 </SelectTrigger>
                 <SelectContent>
                   {props.runnableServers.map((server) => (
-                    <SelectItem key={server.server.name} value={server.server.name}>
+                    <SelectItem
+                      key={server.server.name}
+                      value={server.server.name}
+                    >
                       {server.server.name}
                     </SelectItem>
                   ))}
@@ -97,7 +107,10 @@ export function RunnerView(props: {
 
             <div className="space-y-2">
               <Label htmlFor="tool-select">Tool</Label>
-              <Select value={props.selectedTool} onValueChange={props.onSelectedToolChange}>
+              <Select
+                value={props.selectedTool}
+                onValueChange={props.onSelectedToolChange}
+              >
                 <SelectTrigger id="tool-select">
                   <SelectValue placeholder="Select a tool" />
                 </SelectTrigger>
@@ -126,7 +139,9 @@ export function RunnerView(props: {
             {props.parsedToolArgs.error ? (
               <Alert variant="destructive">
                 <AlertTitle>Invalid JSON</AlertTitle>
-                <AlertDescription>{props.parsedToolArgs.error}</AlertDescription>
+                <AlertDescription>
+                  {props.parsedToolArgs.error}
+                </AlertDescription>
               </Alert>
             ) : null}
 
@@ -146,25 +161,36 @@ export function RunnerView(props: {
               <Button
                 variant="outline-subtle"
                 onClick={props.onCopyPayload}
-                disabled={!props.selectedServer || !props.selectedTool || Boolean(props.parsedToolArgs.error)}
+                disabled={
+                  !props.selectedServer ||
+                  !props.selectedTool ||
+                  Boolean(props.parsedToolArgs.error)
+                }
               >
                 Copy payload
               </Button>
               <Button
                 variant="outline-subtle"
                 onClick={props.onCopyCurl}
-                disabled={!props.selectedServer || !props.selectedTool || Boolean(props.parsedToolArgs.error)}
+                disabled={
+                  !props.selectedServer ||
+                  !props.selectedTool ||
+                  Boolean(props.parsedToolArgs.error)
+                }
               >
                 Copy curl
               </Button>
             </div>
 
             {props.activeTool ? (
-              <Card className="border-dashed">
+              <Card id="runner-schema" className="scroll-mt-4 border-dashed">
                 <CardHeader className="pb-4">
-                  <CardTitle className="text-base">{props.activeTool.name}</CardTitle>
+                  <CardTitle className="text-base">
+                    {props.activeTool.name}
+                  </CardTitle>
                   <CardDescription>
-                    {props.activeTool.description ?? "No description available for this tool."}
+                    {props.activeTool.description ??
+                      "No description available for this tool."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
@@ -180,7 +206,10 @@ export function RunnerView(props: {
           </CardContent>
         </Card>
 
-        <div className="h-[36rem] min-w-0 overflow-hidden rounded-lg border bg-background">
+        <div
+          id="runner-inventory"
+          className="h-[36rem] min-w-0 scroll-mt-4 overflow-hidden rounded-lg border bg-background"
+        >
           <SplitPanel
             direction="vertical"
             startSize="minmax(20rem, 1fr)"
@@ -217,7 +246,9 @@ function ToolInventory(props: {
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b p-4">
         <CardTitle className="text-base">Tool inventory</CardTitle>
-        <CardDescription>Searchable list of exposed tools across runnable services.</CardDescription>
+        <CardDescription>
+          Searchable list of exposed tools across runnable services.
+        </CardDescription>
         <Input
           className="mt-3 max-w-sm"
           placeholder="Search tools..."
@@ -236,10 +267,16 @@ function ToolInventory(props: {
               onClick={() => props.onSelectTool(row.serverName, row.toolName)}
             >
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{row.toolName}</div>
-                <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{row.serverName}</div>
+                <div className="truncate text-sm font-medium">
+                  {row.toolName}
+                </div>
+                <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                  {row.serverName}
+                </div>
                 {row.description ? (
-                  <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">{row.description}</div>
+                  <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                    {row.description}
+                  </div>
                 ) : null}
               </div>
               <ServerStatusBadge status={row.status} />
@@ -266,13 +303,19 @@ function LastRunResult(props: {
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b p-4">
         <div>
           <CardTitle className="text-base">Last tool result</CardTitle>
-          <CardDescription>Structured responses stay visible for follow-up runs.</CardDescription>
+          <CardDescription>
+            Structured responses stay visible for follow-up runs.
+          </CardDescription>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary" className="font-mono">
             {props.selectedTool || "No tool selected"}
           </Badge>
-          <Button variant="outline-subtle" size="sm" onClick={props.onCopyOutput}>
+          <Button
+            variant="outline-subtle"
+            size="sm"
+            onClick={props.onCopyOutput}
+          >
             Copy output
           </Button>
         </div>

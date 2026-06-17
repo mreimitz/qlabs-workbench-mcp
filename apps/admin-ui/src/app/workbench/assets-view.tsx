@@ -24,7 +24,8 @@ import {
 import { QpsAssetsBrowser } from "../qps-assets-browser";
 import type { AssetRecord, ServerStatus } from "./types";
 
-const isImageFile = (filename: string) => /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
+const isImageFile = (filename: string) =>
+  /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
 
 export function AssetsView(props: {
   assetKeywordFilter: string;
@@ -49,7 +50,12 @@ export function AssetsView(props: {
         description="Browse QPS toolkit assets or manage uploaded assets and keyword tags."
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            <Select value={props.assetViewMode} onValueChange={(value) => props.onAssetViewModeChange(value as "qps" | "uploaded")}>
+            <Select
+              value={props.assetViewMode}
+              onValueChange={(value) =>
+                props.onAssetViewModeChange(value as "qps" | "uploaded")
+              }
+            >
               <SelectTrigger className="w-56">
                 <SelectValue placeholder="Asset source" />
               </SelectTrigger>
@@ -63,11 +69,15 @@ export function AssetsView(props: {
                 className="w-72 max-w-full"
                 placeholder="Filter assets by file or keyword"
                 value={props.assetKeywordFilter}
-                onChange={(event) => props.onAssetKeywordFilterChange(event.target.value)}
+                onChange={(event) =>
+                  props.onAssetKeywordFilterChange(event.target.value)
+                }
               />
             ) : (
               <Badge variant="secondary">
-                {props.qpsToolkitServer?.configured ? "Toolkit mounted" : "Toolkit not mounted"}
+                {props.qpsToolkitServer?.configured
+                  ? "Toolkit mounted"
+                  : "Toolkit not mounted"}
               </Badge>
             )}
           </div>
@@ -75,10 +85,15 @@ export function AssetsView(props: {
       />
 
       {props.assetViewMode === "qps" ? (
-        <QpsAssetsBrowser
-          enabled={Boolean(props.qpsToolkitServer?.enabled && props.qpsToolkitServer?.configured)}
-          note={props.qpsToolkitServer?.note}
-        />
+        <section id="assets-qps" className="scroll-mt-4">
+          <QpsAssetsBrowser
+            enabled={Boolean(
+              props.qpsToolkitServer?.enabled &&
+              props.qpsToolkitServer?.configured,
+            )}
+            note={props.qpsToolkitServer?.note}
+          />
+        </section>
       ) : (
         <UploadedAssets
           assetKeywords={props.assetKeywords}
@@ -108,23 +123,32 @@ function UploadedAssets(props: {
   totalAssets: number;
 }) {
   return (
-    <>
+    <section id="assets-uploads" className="space-y-4 scroll-mt-4">
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <CardTitle>Uploaded asset registry</CardTitle>
-              <CardDescription>Upload files once, tag them, and keep the shared catalog organized.</CardDescription>
+              <CardDescription>
+                Upload files once, tag them, and keep the shared catalog
+                organized.
+              </CardDescription>
             </div>
             <Badge variant="secondary">
-              {props.totalAssets} total asset{props.totalAssets === 1 ? "" : "s"}
+              {props.totalAssets} total asset
+              {props.totalAssets === 1 ? "" : "s"}
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
           <div className="space-y-2">
             <Label htmlFor="asset-file">Upload asset</Label>
-            <Input id="asset-file" type="file" onChange={props.onUploadAsset} disabled={props.busy} />
+            <Input
+              id="asset-file"
+              type="file"
+              onChange={props.onUploadAsset}
+              disabled={props.busy}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="asset-keywords">Keywords</Label>
@@ -132,7 +156,9 @@ function UploadedAssets(props: {
               id="asset-keywords"
               placeholder="hero, screenshot, dark"
               value={props.assetKeywords}
-              onChange={(event) => props.onAssetKeywordsChange(event.target.value)}
+              onChange={(event) =>
+                props.onAssetKeywordsChange(event.target.value)
+              }
             />
           </div>
         </CardContent>
@@ -160,13 +186,19 @@ function UploadedAssets(props: {
               )}
             </div>
             <CardHeader className="pb-3">
-              <CardTitle className="truncate text-base">{asset.filename}</CardTitle>
-              <CardDescription className="truncate font-mono text-xs">{asset.url}</CardDescription>
+              <CardTitle className="truncate text-base">
+                {asset.filename}
+              </CardTitle>
+              <CardDescription className="truncate font-mono text-xs">
+                {asset.url}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 {asset.keywords.length === 0 ? (
-                  <span className="text-sm text-muted-foreground">No keywords yet.</span>
+                  <span className="text-sm text-muted-foreground">
+                    No keywords yet.
+                  </span>
                 ) : (
                   asset.keywords.map((keyword) => (
                     <Badge key={keyword} variant="secondary">
@@ -180,7 +212,12 @@ function UploadedAssets(props: {
                 <Input
                   placeholder="add,tags"
                   value={props.assetTagDrafts[asset.filename] ?? ""}
-                  onChange={(event) => props.onAssetTagDraftChange(asset.filename, event.target.value)}
+                  onChange={(event) =>
+                    props.onAssetTagDraftChange(
+                      asset.filename,
+                      event.target.value,
+                    )
+                  }
                 />
                 <Button
                   variant="outline-subtle"
@@ -206,6 +243,6 @@ function UploadedAssets(props: {
           </CardContent>
         </Card>
       ) : null}
-    </>
+    </section>
   );
 }

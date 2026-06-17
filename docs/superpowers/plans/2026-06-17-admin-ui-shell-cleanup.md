@@ -13,6 +13,7 @@
 ### Task 1: Add Deterministic Formatting Tests
 
 **Files:**
+
 - Create: `apps/admin-ui/src/app/workbench/format.test.ts`
 - Create: `apps/admin-ui/src/app/workbench/format.ts`
 
@@ -20,7 +21,12 @@
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { formatDateTime, formatFileTimestamp, formatLatency, prettyJson } from "./format";
+import {
+  formatDateTime,
+  formatFileTimestamp,
+  formatLatency,
+  prettyJson,
+} from "./format";
 
 describe("workbench formatting", () => {
   it("formats run timestamps deterministically for SSR and hydration", () => {
@@ -35,7 +41,7 @@ describe("workbench formatting", () => {
     expect(formatLatency(null)).toBe("n/a");
     expect(formatLatency(250)).toBe("250 ms");
     expect(formatLatency(1250)).toBe("1.3 s");
-    expect(prettyJson({ ok: true })).toBe("{\n  \"ok\": true\n}");
+    expect(prettyJson({ ok: true })).toBe('{\n  "ok": true\n}');
   });
 });
 ```
@@ -59,6 +65,7 @@ Expected: PASS.
 ### Task 2: Split Data Types And Shell Structure
 
 **Files:**
+
 - Create: `apps/admin-ui/src/app/workbench/types.ts`
 - Create: `apps/admin-ui/src/app/workbench/navigation.ts`
 - Create: `apps/admin-ui/src/app/workbench/workbench-shell.tsx`
@@ -83,6 +90,7 @@ Keep existing state and actions initially, but render navigation through `Workbe
 ### Task 3: Extract Views
 
 **Files:**
+
 - Create: `apps/admin-ui/src/app/workbench/status.tsx`
 - Create: `apps/admin-ui/src/app/workbench/overview-view.tsx`
 - Create: `apps/admin-ui/src/app/workbench/servers-view.tsx`
@@ -106,6 +114,7 @@ Each view receives data and callbacks through typed props. No view should own th
 ### Task 4: Fix Layout And Overflow
 
 **Files:**
+
 - Modify: `apps/admin-ui/src/app/workbench/runner-view.tsx`
 - Modify: `apps/admin-ui/src/app/workbench/overview-view.tsx`
 - Modify: `apps/admin-ui/src/app/qps-assets-browser.tsx`
@@ -129,6 +138,7 @@ Use `formatDateTime` and `formatFileTimestamp`; no `toLocaleString()` calls rema
 ### Task 5: Verify
 
 **Files:**
+
 - No new runtime files required.
 
 - [x] **Step 1: Run unit test**
@@ -150,6 +160,35 @@ Expected: PASS.
 - [x] **Step 3: Browser verify desktop and mobile**
 
 At `http://localhost:3001` during this session, verify:
+
 - desktop `1280x720`: shell height equals viewport height, sidebar height equals viewport height, no horizontal overflow on Overview, Servers, Tool Runner, Assets, Storage.
 - mobile `390x844`: no document horizontal overflow; navigation sheet opens; major content remains reachable.
 - console has no `localhost:3000` hydration errors.
+
+### Task 6: Continuation Shell Polish
+
+**Files:**
+
+- Create: `apps/admin-ui/src/app/icon.svg`
+- Modify: `apps/admin-ui/src/app/workbench/workbench-shell.tsx`
+- Modify: `apps/admin-ui/src/app/workbench/overview-view.tsx`
+- Modify: `apps/admin-ui/src/app/workbench/servers-view.tsx`
+- Modify: `apps/admin-ui/src/app/workbench/runner-view.tsx`
+- Modify: `apps/admin-ui/src/app/workbench/assets-view.tsx`
+- Modify: `apps/admin-ui/src/app/workbench/storage-view.tsx`
+
+- [x] **Step 1: Remove favicon console noise**
+
+Add a root App Router icon so Next emits a real icon route and browser reloads do not fall back to a missing `/favicon.ico`.
+
+- [x] **Step 2: Make secondary navigation functional**
+
+Convert the secondary sidebar from decorative buttons to section links and add namespaced section ids in each view.
+
+- [x] **Step 3: Reset shell scroll state on primary navigation**
+
+Clear stale hashes and scroll the main work area back to the top when switching primary views.
+
+- [x] **Step 4: Verify continuation changes**
+
+Run unit/static/build checks and browser-verify secondary links, mobile drawer close, no horizontal overflow, and no fresh console errors.
