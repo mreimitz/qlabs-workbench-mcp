@@ -1,21 +1,22 @@
 "use client";
 
 import type { ChangeEvent } from "react";
+import { useMemo } from "react";
+import {
+  ColumnPicker,
+  DataTable,
+  FilterBar,
+  SearchInput,
+  type ColumnDef,
+} from "@brand/data";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
   Label,
   ScrollArea,
-  SectionHeader,
   Select,
   SelectContent,
   SelectItem,
@@ -24,6 +25,13 @@ import {
   SplitPanel,
   Textarea,
 } from "@brand/ui";
+import { Copy, Play, Wrench } from "lucide-react";
+import {
+  CompactBadge,
+  EnterpriseHeader,
+  EnterprisePage,
+  Panel,
+} from "./enterprise";
 import { prettyJson } from "./format";
 import { ServerStatusBadge } from "./status";
 import type { ServerStatus, Tool } from "./types";
@@ -59,72 +67,86 @@ export function RunnerView(props: {
   toolFilter: string;
   toolInventoryRows: ToolInventoryRow[];
 }) {
-  const filteredTools = props.toolInventoryRows.filter((row) => {
+  const filteredTools = useMemo(() => {
     const query = props.toolFilter.trim().toLowerCase();
-    if (!query) return true;
-    return `${row.serverName} ${row.toolName} ${row.description} ${row.status}`
-      .toLowerCase()
-      .includes(query);
-  });
+    return props.toolInventoryRows.filter((row) => {
+      if (!query) return true;
+      return `${row.serverName} ${row.toolName} ${row.description} ${row.status}`
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [props.toolFilter, props.toolInventoryRows]);
 
   return (
-    <div className="space-y-6">
-      <SectionHeader
+    <EnterprisePage>
+      <EnterpriseHeader
+        eyebrow="Execution"
         title="Tool Runner"
         description="Compose explicit MCP calls, inspect schemas, and review output without leaving the workbench."
+        meta={
+          <>
+            <CompactBadge variant="secondary">
+              {props.runnableServers.length} runnable servers
+            </CompactBadge>
+            <CompactBadge variant="secondary">
+              {props.toolInventoryRows.length} tools
+            </CompactBadge>
+          </>
+        }
       />
 
-      <div className="grid min-w-0 items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card id="runner-compose" className="min-w-0 scroll-mt-4 self-start">
-          <CardHeader>
-            <CardTitle>Compose run</CardTitle>
-            <CardDescription>
-              Choose a server and tool, then provide JSON arguments.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="server-select">Server</Label>
-              <Select
-                value={props.selectedServer}
-                onValueChange={props.onSelectServer}
-              >
-                <SelectTrigger id="server-select">
-                  <SelectValue placeholder="Select a server" />
-                </SelectTrigger>
-                <SelectContent>
-                  {props.runnableServers.map((server) => (
-                    <SelectItem
-                      key={server.server.name}
-                      value={server.server.name}
-                    >
-                      {server.server.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <Panel
+          id="runner-compose"
+          title="Compose run"
+          description="Choose a server and tool, then provide JSON arguments."
+          className="self-start"
+        >
+          <div className="space-y-4 p-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="server-select">Server</Label>
+                <Select
+                  value={props.selectedServer}
+                  onValueChange={props.onSelectServer}
+                >
+                  <SelectTrigger id="server-select">
+                    <SelectValue placeholder="Select a server" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {props.runnableServers.map((serverStatus) => (
+                      <SelectItem
+                        key={serverStatus.server.name}
+                        value={serverStatus.server.name}
+                      >
+                        {serverStatus.server.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="tool-select">Tool</Label>
+                <Select
+                  value={props.selectedTool}
+                  onValueChange={props.onSelectedToolChange}
+                >
+                  <SelectTrigger id="tool-select">
+                    <SelectValue placeholder="Select a tool" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(props.activeServer?.tools ?? []).map((tool) => (
+                      <SelectItem key={tool.name} value={tool.name}>
+                        {tool.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="tool-select">Tool</Label>
-              <Select
-                value={props.selectedTool}
-                onValueChange={props.onSelectedToolChange}
-              >
-                <SelectTrigger id="tool-select">
-                  <SelectValue placeholder="Select a tool" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(props.activeServer?.tools ?? []).map((tool) => (
-                    <SelectItem key={tool.name} value={tool.name}>
-                      {tool.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="tool-args">Arguments JSON</Label>
               <Textarea
                 id="tool-args"
@@ -148,6 +170,7 @@ export function RunnerView(props: {
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={props.onRunSelectedTool}
                 disabled={
                   props.busy ||
@@ -156,10 +179,12 @@ export function RunnerView(props: {
                   Boolean(props.parsedToolArgs.error)
                 }
               >
-                Run tool
+                <Play className="h-4 w-4" aria-hidden="true" />
+                Run
               </Button>
               <Button
                 variant="outline-subtle"
+                size="sm"
                 onClick={props.onCopyPayload}
                 disabled={
                   !props.selectedServer ||
@@ -167,10 +192,12 @@ export function RunnerView(props: {
                   Boolean(props.parsedToolArgs.error)
                 }
               >
-                Copy payload
+                <Copy className="h-4 w-4" aria-hidden="true" />
+                Payload
               </Button>
               <Button
                 variant="outline-subtle"
+                size="sm"
                 onClick={props.onCopyCurl}
                 disabled={
                   !props.selectedServer ||
@@ -178,37 +205,37 @@ export function RunnerView(props: {
                   Boolean(props.parsedToolArgs.error)
                 }
               >
-                Copy curl
+                Curl
               </Button>
             </div>
 
             {props.activeTool ? (
-              <Card id="runner-schema" className="scroll-mt-4 border-dashed">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-base">
+              <div id="runner-schema" className="space-y-2 rounded-md border border-dashed p-4">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">
                     {props.activeTool.name}
-                  </CardTitle>
-                  <CardDescription>
+                  </div>
+                  <p className="mt-0.5 line-clamp-3 text-xs leading-5 text-muted-foreground">
                     {props.activeTool.description ??
                       "No description available for this tool."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Label>Input schema</Label>
-                  <ScrollArea className="h-40 rounded-md border bg-surface-muted/40 p-4">
-                    <pre className="whitespace-pre-wrap break-words font-mono text-xs">
-                      {prettyJson(props.activeTool.inputSchema ?? {})}
-                    </pre>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
+                  </p>
+                </div>
+                <Label>Input schema</Label>
+                <ScrollArea className="h-40 rounded-md border bg-surface-muted/40 p-4">
+                  <pre className="whitespace-pre-wrap break-words font-mono text-xs">
+                    {prettyJson(props.activeTool.inputSchema ?? {})}
+                  </pre>
+                </ScrollArea>
+              </div>
             ) : null}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
 
-        <div
+        <Panel
           id="runner-inventory"
-          className="h-[36rem] min-w-0 scroll-mt-4 overflow-hidden rounded-lg border bg-background"
+          title="Inventory and result"
+          description="Search available tools and keep the latest response visible."
+          className="h-[calc(100dvh-12rem)] min-h-[34rem]"
         >
           <SplitPanel
             direction="vertical"
@@ -230,9 +257,9 @@ export function RunnerView(props: {
               />
             }
           />
-        </div>
+        </Panel>
       </div>
-    </div>
+    </EnterprisePage>
   );
 }
 
@@ -242,53 +269,95 @@ function ToolInventory(props: {
   onSelectTool: (serverName: string, toolName: string) => void;
   tools: ToolInventoryRow[];
 }) {
+  const columns = useMemo<ColumnDef<ToolInventoryRow>[]>(
+    () => [
+      {
+        accessorKey: "toolName",
+        header: "Tool",
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">
+              {row.original.toolName}
+            </div>
+            {row.original.description ? (
+              <div className="line-clamp-2 text-xs text-muted-foreground">
+                {row.original.description}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "serverName",
+        header: "Server",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.serverName}</span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => <ServerStatusBadge status={row.original.status} />,
+      },
+      {
+        id: "enabled",
+        header: "Runnable",
+        cell: ({ row }) => (
+          <Badge
+            variant={
+              row.original.enabled && row.original.status !== "setup-required"
+                ? "success"
+                : "outline"
+            }
+          >
+            {row.original.enabled && row.original.status !== "setup-required"
+              ? "Yes"
+              : "No"}
+          </Badge>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!row.original.enabled || row.original.status === "setup-required"}
+            onClick={() =>
+              props.onSelectTool(row.original.serverName, row.original.toolName)
+            }
+          >
+            Select
+          </Button>
+        ),
+      },
+    ],
+    [props],
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b p-4">
-        <CardTitle className="text-base">Tool inventory</CardTitle>
-        <CardDescription>
-          Searchable list of exposed tools across runnable services.
-        </CardDescription>
-        <Input
-          className="mt-3 max-w-sm"
-          placeholder="Search tools..."
-          value={props.filter}
-          onChange={(event) => props.onFilterChange(event.target.value)}
-        />
-      </div>
-      <ScrollArea className="min-h-0 flex-1 p-4">
-        <div className="space-y-2">
-          {props.tools.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className="flex w-full min-w-0 items-start justify-between gap-3 rounded-md border bg-surface-elevated p-3 text-start transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!row.enabled || row.status === "setup-required"}
-              onClick={() => props.onSelectTool(row.serverName, row.toolName)}
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">
-                  {row.toolName}
-                </div>
-                <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                  {row.serverName}
-                </div>
-                {row.description ? (
-                  <div className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                    {row.description}
-                  </div>
-                ) : null}
-              </div>
-              <ServerStatusBadge status={row.status} />
-            </button>
-          ))}
-          {props.tools.length === 0 ? (
-            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-              No tools match the current filter.
-            </div>
-          ) : null}
-        </div>
-      </ScrollArea>
+      <DataTable
+        className="p-4"
+        columns={columns}
+        data={props.tools}
+        emptyMessage="No tools match the current filter."
+        enableRowVirtualization
+        estimateRowHeight={52}
+        maxBodyHeight="100%"
+        toolbar={(table) => (
+          <FilterBar actions={<ColumnPicker table={table} />}>
+            <SearchInput
+              value={props.filter}
+              onValueChange={props.onFilterChange}
+              containerClassName="w-72 max-w-full"
+              placeholder="Filter tools..."
+            />
+          </FilterBar>
+        )}
+      />
     </div>
   );
 }
@@ -300,12 +369,15 @@ function LastRunResult(props: {
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b p-4">
-        <div>
-          <CardTitle className="text-base">Last tool result</CardTitle>
-          <CardDescription>
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <h3 className="truncate text-sm font-semibold">Last result</h3>
+          </div>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
             Structured responses stay visible for follow-up runs.
-          </CardDescription>
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary" className="font-mono">

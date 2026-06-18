@@ -12,7 +12,6 @@ import {
   Server,
   Settings2,
   TerminalSquare,
-  Upload,
   type LucideIcon,
 } from "lucide-react";
 import type { ViewKey } from "./types";
@@ -55,8 +54,7 @@ export const secondaryNavItems: Record<ViewKey, SecondaryNavItem[]> = {
     { id: "inventory", label: "Inventory", description: "Search all exposed tools", icon: ListChecks },
   ],
   assets: [
-    { id: "qps", label: "QPS Toolkit", description: "Mounted shared design assets", icon: Images },
-    { id: "uploads", label: "Uploads", description: "Uploaded asset registry", icon: Upload },
+    { id: "library", label: "Library", description: "Asset sources, files, and inspector", icon: Images },
   ],
   storage: [
     { id: "browser", label: "Browser", description: "Browse the mounted storage root", icon: FolderOpen },

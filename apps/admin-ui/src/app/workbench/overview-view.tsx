@@ -2,18 +2,29 @@
 
 import { useMemo } from "react";
 import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-  SectionHeader,
-  StatusBadge,
-} from "@brand/ui";
-import { MetricCard, MetricGrid } from "@brand/charts";
+  ColumnPicker,
+  DataTable,
+  FilterBar,
+  SearchInput,
+  type ColumnDef,
+} from "@brand/data";
+import { Button, Label, StatusBadge } from "@brand/ui";
+import {
+  AlertTriangle,
+  Copy,
+  Database,
+  ExternalLink,
+  FolderTree,
+  Server,
+} from "lucide-react";
+import {
+  CompactBadge,
+  EnterpriseHeader,
+  EnterprisePage,
+  MetricPill,
+  MetricStrip,
+  Panel,
+} from "./enterprise";
 import { formatDateTime, prettyJson } from "./format";
 import type { DashboardPayload, EndpointRow, RunRecord } from "./types";
 
@@ -48,116 +59,206 @@ export function OverviewView(props: {
     );
   }, [props.endpointRows, props.endpointsSearch]);
 
+  const runColumns = useMemo<ColumnDef<RunRecord>[]>(
+    () => [
+      {
+        accessorKey: "startedAt",
+        header: "Started",
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-xs">
+            {formatDateTime(row.original.startedAt)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "serverName",
+        header: "Server",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.serverName}</span>
+        ),
+      },
+      {
+        accessorKey: "toolName",
+        header: "Tool",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.toolName}</span>
+        ),
+      },
+      {
+        accessorKey: "durationMs",
+        header: "Duration",
+        cell: ({ row }) => (
+          <span className="tabular-nums">{row.original.durationMs} ms</span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => (
+          <StatusBadge
+            status={row.original.status === "success" ? "complete" : "failed"}
+            size="sm"
+          />
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => props.onSelectRun(row.original.id)}
+          >
+            Inspect
+          </Button>
+        ),
+      },
+    ],
+    [props],
+  );
+
+  const endpointColumns = useMemo<ColumnDef<EndpointRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Name",
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      },
+      {
+        accessorKey: "url",
+        header: "URL",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-muted-foreground">
+            {row.original.url}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end gap-1">
+            <Button asChild variant="ghost" size="icon-sm" aria-label="Open endpoint">
+              <a href={row.original.url} target="_blank" rel="noreferrer">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              </a>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Copy endpoint"
+              onClick={() => props.onCopyEndpoint(row.original.name, row.original.url)}
+            >
+              <Copy className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [props],
+  );
+
   return (
-    <div className="space-y-6">
-      <SectionHeader
+    <EnterprisePage>
+      <EnterpriseHeader
+        eyebrow="Operations"
         title="Overview"
-        description="Operational health, recent tool activity, and local service entry points."
+        description="Control-plane health, recent tool activity, and stable local entry points."
+        meta={
+          <>
+            <CompactBadge variant="secondary">
+              {props.payload.dashboard.summary.totalRuns} runs
+            </CompactBadge>
+            <CompactBadge variant="secondary">
+              {props.payload.dashboard.summary.totalTools} tools
+            </CompactBadge>
+          </>
+        }
       />
 
       <section id="overview-health" className="scroll-mt-4">
-        <MetricGrid columns={2}>
-          <MetricCard
+        <MetricStrip>
+          <MetricPill
+            icon={Server}
             label="Healthy servers"
             value={`${props.payload.dashboard.summary.healthyServers}/${props.payload.dashboard.summary.enabledServers}`}
-            description="Currently healthy among enabled services"
-            emphasis="headline"
-          />
-          <MetricCard
-            label="Storage root"
-            value={props.payload.storageHealth.storageRoot}
-            description={
-              props.payload.storageHealth.ok
-                ? "Storage API healthy"
-                : "Storage API needs attention"
+            description="Healthy among enabled services"
+            tone={
+              props.payload.dashboard.summary.healthyServers ===
+              props.payload.dashboard.summary.enabledServers
+                ? "success"
+                : "warning"
             }
-            className="font-mono"
           />
-          <MetricCard
+          <MetricPill
+            icon={Database}
+            label="Storage root"
+            value={props.payload.storageHealth.ok ? "Healthy" : "Attention"}
+            description={props.payload.storageHealth.storageRoot}
+            tone={props.payload.storageHealth.ok ? "success" : "danger"}
+          />
+          <MetricPill
+            icon={FolderTree}
             label="Current folder"
             value={props.payload.rootBrowse.path || "/"}
             description={`${props.rootStats.folders} folders / ${props.rootStats.files} files`}
-            className="font-mono"
           />
-          <MetricCard
-            label="Attention signals"
-            value={String(props.payload.dashboard.diagnostics.attentionCount)}
-            description="Servers that need operator review"
+          <MetricPill
+            icon={AlertTriangle}
+            label="Attention"
+            value={props.payload.dashboard.diagnostics.attentionCount}
+            description="Servers needing operator review"
+            tone={
+              props.payload.dashboard.diagnostics.attentionCount > 0
+                ? "warning"
+                : "success"
+            }
           />
-        </MetricGrid>
+        </MetricStrip>
       </section>
 
       <section
         id="overview-activity"
-        className="grid scroll-mt-4 gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]"
+        className="grid scroll-mt-4 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]"
       >
-        <Card className="min-w-0">
-          <CardHeader className="gap-3">
-            <div>
-              <CardTitle>Recent runs</CardTitle>
-              <CardDescription>
-                Latest tool executions recorded by the control plane.
-              </CardDescription>
-            </div>
-            <Input
-              className="max-w-sm"
-              placeholder="Search runs..."
-              value={props.runsSearch}
-              onChange={(event) => props.onRunsSearchChange(event.target.value)}
-            />
-          </CardHeader>
-          <CardContent>
-            <div className="h-[28rem] overflow-y-auto pe-2">
-              <div className="space-y-2">
-                {filteredRuns.map((run) => (
-                  <button
-                    key={run.id}
-                    type="button"
-                    className="flex w-full min-w-0 items-start justify-between gap-3 rounded-md border bg-surface-elevated p-3 text-start transition-colors hover:bg-surface-muted"
-                    onClick={() => props.onSelectRun(run.id)}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">
-                        {run.serverName} / {run.toolName}
-                      </div>
-                      <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {run.error ?? "Completed and recorded."}
-                      </div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        {formatDateTime(run.startedAt)} · {run.durationMs} ms
-                      </div>
-                    </div>
-                    <StatusBadge
-                      status={run.status === "success" ? "complete" : "failed"}
-                      size="sm"
-                    />
-                  </button>
-                ))}
-                {filteredRuns.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                    No runs match the current search.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Panel
+          title="Recent runs"
+          description="Latest MCP tool executions recorded by the control plane."
+        >
+          <DataTable
+            className="p-4"
+            columns={runColumns}
+            data={filteredRuns}
+            enablePagination
+            pageSize={8}
+            emptyMessage="No runs match the current search."
+            toolbar={(table) => (
+              <FilterBar actions={<ColumnPicker table={table} />}>
+                <SearchInput
+                  value={props.runsSearch}
+                  onValueChange={props.onRunsSearchChange}
+                  containerClassName="w-72 max-w-full"
+                  placeholder="Filter runs..."
+                />
+              </FilterBar>
+            )}
+          />
+        </Panel>
 
-        <Card className="min-w-0">
-          <CardHeader>
-            <CardTitle>Selected run</CardTitle>
-            <CardDescription>
-              Arguments and response for the active run.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <Panel
+          title="Selected run"
+          description="Arguments and response for the active execution."
+        >
+          <div className="p-4">
             {props.selectedRun ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">
-                      {props.selectedRun.serverName} /{" "}
-                      {props.selectedRun.toolName}
+                      {props.selectedRun.serverName} / {props.selectedRun.toolName}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {formatDateTime(props.selectedRun.startedAt)} ·{" "}
@@ -183,76 +284,50 @@ export function OverviewView(props: {
                 />
               </div>
             ) : (
-              <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                 Select a run to inspect its payload.
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </Panel>
       </section>
 
-      <Card id="overview-endpoints" className="scroll-mt-4">
-        <CardHeader className="gap-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <CardTitle>Endpoints</CardTitle>
-              <CardDescription>
-                Stable local entry points for UI checks and tooling.
-              </CardDescription>
-            </div>
-            <Input
-              className="max-w-sm"
-              placeholder="Search endpoints..."
-              value={props.endpointsSearch}
-              onChange={(event) =>
-                props.onEndpointsSearchChange(event.target.value)
-              }
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-2 md:grid-cols-2">
-            {filteredEndpoints.map((row) => (
-              <div
-                key={row.name}
-                className="min-w-0 rounded-md border bg-surface-elevated p-3"
-              >
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{row.name}</div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                      {row.url}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button asChild variant="outline-subtle" size="sm">
-                      <a href={row.url} target="_blank" rel="noreferrer">
-                        Open
-                      </a>
-                    </Button>
-                    <Button
-                      variant="outline-subtle"
-                      size="sm"
-                      onClick={() => props.onCopyEndpoint(row.name, row.url)}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+      <Panel
+        id="overview-endpoints"
+        title="Endpoints"
+        description="Stable local entry points for UI checks and tooling."
+        actions={
+          <CompactBadge variant="secondary">
+            {filteredEndpoints.length} endpoints
+          </CompactBadge>
+        }
+      >
+        <DataTable
+          className="p-4"
+          columns={endpointColumns}
+          data={filteredEndpoints}
+          emptyMessage="No endpoints match the current search."
+          toolbar={(table) => (
+            <FilterBar actions={<ColumnPicker table={table} />}>
+              <SearchInput
+                value={props.endpointsSearch}
+                onValueChange={props.onEndpointsSearchChange}
+                containerClassName="w-72 max-w-full"
+                placeholder="Filter endpoints..."
+              />
+            </FilterBar>
+          )}
+        />
+      </Panel>
+    </EnterprisePage>
   );
 }
 
 function RunPayload(props: { label: string; value: unknown }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <Label>{props.label}</Label>
-      <div className="h-44 overflow-auto rounded-md border bg-surface-muted/40 p-4">
+      <div className="h-40 overflow-auto rounded-md border bg-surface-muted/40 p-4">
         <pre className="whitespace-pre-wrap break-words font-mono text-xs text-foreground">
           {typeof props.value === "string"
             ? props.value

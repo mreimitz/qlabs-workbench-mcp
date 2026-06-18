@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { asyncRoute, createErrorResponse, parseBase64Strict, withRequestId } from "@qlabs/server-utils";
+import { removeAssetFromIndex, type AssetIndex } from "./asset-index.js";
 
 const requiredEnv = (name: string) => {
   const value = process.env[name];
@@ -25,7 +26,7 @@ const seedDemoContent = envFlag(process.env.SEED_DEMO_CONTENT, true);
 const maxUploadBytes = Number.parseInt(process.env.MAX_UPLOAD_BYTES ?? "10485760", 10);
 const indexPath = path.posix.join(assetsRoot, "index.json");
 
-type Index = { keywords: Record<string, string[]> };
+type Index = AssetIndex;
 type AssetRecord = { filename: string; keywords: string[]; url: string };
 
 const ensureRoot = async () => {
@@ -276,6 +277,16 @@ app.post("/assets/:filename/tags", asyncRoute(async (req: Request, res: Response
   const assets = await listAssets();
   const asset = assets.find((entry) => entry.filename === safeName);
   res.json({ ok: true, asset });
+}));
+
+app.delete("/assets/:filename", asyncRoute(async (req: Request, res: Response) => {
+  const safeName = normalizeFlatFilename(req.params.filename);
+  const assetPath = await assertAssetExists(safeName);
+
+  await fs.unlink(assetPath);
+  await writeIndex(removeAssetFromIndex(await readIndex(), safeName));
+
+  res.json({ ok: true, filename: safeName });
 }));
 
 app.get("/asset-files/:filename", asyncRoute(async (req: Request, res: Response) => {

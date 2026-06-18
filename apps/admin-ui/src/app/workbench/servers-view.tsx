@@ -1,17 +1,24 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Input,
-  SectionHeader,
-} from "@brand/ui";
+  ColumnPicker,
+  DataTable,
+  FacetFilter,
+  FilterBar,
+  SearchInput,
+  type ColumnDef,
+} from "@brand/data";
+import { Badge, Button } from "@brand/ui";
+import { AlertTriangle, ExternalLink, Power, Server, Wrench } from "lucide-react";
+import {
+  CompactBadge,
+  EnterpriseHeader,
+  EnterprisePage,
+  MetricPill,
+  MetricStrip,
+  Panel,
+} from "./enterprise";
 import { formatLatency } from "./format";
 import { describeServerStatus, ServerStatusBadge } from "./status";
 import type { DashboardData, ServerStatus } from "./types";
@@ -23,140 +30,210 @@ export function ServersView(props: {
   onToggleServer: (serverName: string, enabled: boolean) => void;
   search: string;
 }) {
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+
   const filteredServers = useMemo(() => {
     const query = props.search.trim().toLowerCase();
-    if (!query) return props.dashboard.servers;
-    return props.dashboard.servers.filter((server) =>
-      `${server.server.name} ${server.server.url} ${server.status} ${server.note ?? ""} ${server.error ?? ""}`
-        .toLowerCase()
-        .includes(query),
-    );
-  }, [props.dashboard.servers, props.search]);
+    return props.dashboard.servers.filter((server) => {
+      const matchesQuery =
+        !query ||
+        `${server.server.name} ${server.server.url} ${server.status} ${server.note ?? ""} ${server.error ?? ""}`
+          .toLowerCase()
+          .includes(query);
+      const matchesStatus =
+        statusFilters.length === 0 || statusFilters.includes(server.status);
+      return matchesQuery && matchesStatus;
+    });
+  }, [props.dashboard.servers, props.search, statusFilters]);
+
+  const columns = useMemo<ColumnDef<ServerStatus>[]>(
+    () => [
+      {
+        accessorKey: "server.name",
+        header: "Server",
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">
+              {row.original.server.name}
+            </div>
+            <div className="truncate font-mono text-xs text-muted-foreground">
+              {row.original.server.url}
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => (
+          <div className="flex min-w-0 flex-col gap-1">
+            <ServerStatusBadge status={row.original.status} />
+            <span className="line-clamp-2 text-xs text-muted-foreground">
+              {describeServerStatus(row.original)}
+            </span>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "latencyMs",
+        header: "Latency",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {formatLatency(row.original.latencyMs)}
+          </span>
+        ),
+      },
+      {
+        id: "tools",
+        header: "Tools",
+        cell: ({ row }) => (
+          <Badge variant="secondary">{row.original.tools.length}</Badge>
+        ),
+      },
+      {
+        id: "enabled",
+        header: "Enabled",
+        cell: ({ row }) => (
+          <Badge variant={row.original.server.enabled ? "success" : "outline"}>
+            {row.original.server.enabled ? "Enabled" : "Disabled"}
+          </Badge>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex justify-end gap-1">
+            <Button asChild variant="ghost" size="icon-sm" aria-label="Open health">
+              <a href={row.original.healthUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              </a>
+            </Button>
+            <Button asChild variant="ghost" size="icon-sm" aria-label="Open MCP endpoint">
+              <a href={row.original.server.url} target="_blank" rel="noreferrer">
+                <Server className="h-4 w-4" aria-hidden="true" />
+              </a>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={
+                row.original.server.enabled ? "Disable server" : "Enable server"
+              }
+              onClick={() =>
+                props.onToggleServer(
+                  row.original.server.name,
+                  !row.original.server.enabled,
+                )
+              }
+              disabled={props.busy}
+            >
+              <Power className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [props],
+  );
 
   return (
-    <div className="space-y-6">
-      <SectionHeader
+    <EnterprisePage>
+      <EnterpriseHeader
+        eyebrow="Registry"
         title="Servers"
-        description="Enable, disable, and inspect the health of each registered MCP server."
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">
-              Enabled {props.dashboard.summary.enabledServers}
-            </Badge>
-            <Badge variant="secondary">
-              Disabled {props.dashboard.summary.disabledServers}
-            </Badge>
-            <Badge variant="warning">
-              Setup {props.dashboard.summary.setupRequiredServers}
-            </Badge>
-            <Badge variant="secondary">
-              Attention {props.dashboard.diagnostics.attentionCount}
-            </Badge>
-          </div>
+        description="Enable, disable, and inspect local MCP services from a single operational registry."
+        meta={
+          <>
+            <CompactBadge variant="secondary">
+              {props.dashboard.summary.totalServers} total
+            </CompactBadge>
+            <CompactBadge variant="secondary">
+              {props.dashboard.summary.totalTools} tools
+            </CompactBadge>
+          </>
         }
       />
 
-      <Card id="servers-registry" className="scroll-mt-4">
-        <CardHeader className="gap-3">
-          <div>
-            <CardTitle>Service registry</CardTitle>
-            <CardDescription>
-              Operational state and direct links for local services.
-            </CardDescription>
-          </div>
-          <Input
-            className="max-w-sm"
-            placeholder="Search servers..."
-            value={props.search}
-            onChange={(event) => props.onSearchChange(event.target.value)}
+      <section id="servers-registry" className="scroll-mt-4">
+        <MetricStrip>
+          <MetricPill
+            icon={Server}
+            label="Enabled"
+            value={props.dashboard.summary.enabledServers}
+            description={`${props.dashboard.summary.disabledServers} disabled`}
           />
-        </CardHeader>
-        <CardContent id="servers-links" className="scroll-mt-4">
-          <div className="grid gap-3">
-            {filteredServers.map((server) => (
-              <ServerRow
-                key={server.server.name}
-                busy={props.busy}
-                server={server}
-                onToggleServer={props.onToggleServer}
+          <MetricPill
+            icon={Server}
+            label="Healthy"
+            value={props.dashboard.summary.healthyServers}
+            description="Passing health checks"
+            tone={
+              props.dashboard.summary.unhealthyServers > 0 ? "warning" : "success"
+            }
+          />
+          <MetricPill
+            icon={AlertTriangle}
+            label="Attention"
+            value={props.dashboard.diagnostics.attentionCount}
+            description="Needs operator review"
+            tone={
+              props.dashboard.diagnostics.attentionCount > 0
+                ? "warning"
+                : "success"
+            }
+          />
+          <MetricPill
+            icon={Wrench}
+            label="Setup required"
+            value={props.dashboard.summary.setupRequiredServers}
+            description="Missing configuration"
+            tone={
+              props.dashboard.summary.setupRequiredServers > 0
+                ? "warning"
+                : "success"
+            }
+          />
+        </MetricStrip>
+      </section>
+
+      <Panel
+        id="servers-links"
+        title="Service registry"
+        description="Searchable service state, latency, endpoints, and controls."
+        actions={<CompactBadge variant="secondary">{filteredServers.length} shown</CompactBadge>}
+      >
+        <DataTable
+          className="p-4"
+          columns={columns}
+          data={filteredServers}
+          enablePagination
+          pageSize={10}
+          emptyMessage="No servers match the current search."
+          toolbar={(table) => (
+            <FilterBar actions={<ColumnPicker table={table} />}>
+              <SearchInput
+                value={props.search}
+                onValueChange={props.onSearchChange}
+                containerClassName="w-72 max-w-full"
+                placeholder="Filter servers..."
               />
-            ))}
-            {filteredServers.length === 0 ? (
-              <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-                No servers match the current search.
-              </div>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function ServerRow(props: {
-  busy: boolean;
-  onToggleServer: (serverName: string, enabled: boolean) => void;
-  server: ServerStatus;
-}) {
-  return (
-    <div className="grid gap-3 rounded-md border bg-surface-elevated p-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.8fr)_auto]">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">
-          {props.server.server.name}
-        </div>
-        <div className="truncate font-mono text-xs text-muted-foreground">
-          {props.server.server.url}
-        </div>
-        {props.server.note ? (
-          <div className="mt-1 text-xs text-muted-foreground">
-            {props.server.note}
-          </div>
-        ) : null}
-        {props.server.error ? (
-          <div className="mt-1 text-xs text-destructive">
-            {props.server.error}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <ServerStatusBadge status={props.server.status} />
-          <Badge variant="outline" className="font-mono">
-            {formatLatency(props.server.latencyMs)}
-          </Badge>
-          <Badge variant="secondary">{props.server.tools.length} tools</Badge>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {describeServerStatus(props.server)}
-        </p>
-      </div>
-
-      <div className="flex flex-wrap items-start justify-start gap-2 lg:justify-end">
-        <Button asChild variant="outline-subtle" size="sm">
-          <a href={props.server.healthUrl} target="_blank" rel="noreferrer">
-            Health
-          </a>
-        </Button>
-        <Button asChild variant="outline-subtle" size="sm">
-          <a href={props.server.server.url} target="_blank" rel="noreferrer">
-            MCP
-          </a>
-        </Button>
-        <Button
-          variant="outline-subtle"
-          size="sm"
-          onClick={() =>
-            props.onToggleServer(
-              props.server.server.name,
-              !props.server.server.enabled,
-            )
-          }
-          disabled={props.busy}
-        >
-          {props.server.server.enabled ? "Disable" : "Enable"}
-        </Button>
-      </div>
-    </div>
+              <FacetFilter
+                title="Status"
+                selected={statusFilters}
+                onSelectedChange={setStatusFilters}
+                options={[
+                  { label: "Healthy", value: "healthy" },
+                  { label: "Attention", value: "attention" },
+                  { label: "Disabled", value: "disabled" },
+                  { label: "Setup required", value: "setup-required" },
+                ]}
+              />
+            </FilterBar>
+          )}
+        />
+      </Panel>
+    </EnterprisePage>
   );
 }

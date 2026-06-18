@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { BrandLogo } from "@brand/icons";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
   Button,
   PageShell,
   Sidebar,
@@ -16,10 +28,19 @@ import {
   SidebarProvider,
   SidebarTrigger,
   ThemeSwitcher,
+  TopNav,
   cn,
   useSidebar,
 } from "@brand/ui";
-import { ChevronRight } from "lucide-react";
+import {
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import {
   getPrimaryNavItem,
   primaryNavItems,
@@ -32,41 +53,62 @@ export type WorkbenchShellProps = {
   activeView: ViewKey;
   busy: boolean;
   children: ReactNode;
+  contextPanel?: ReactNode;
   onRefresh: () => void;
   onViewChange: (view: ViewKey) => void;
+  secondaryContent?: ReactNode;
+  secondaryWidthClassName?: string;
 };
 
 export function WorkbenchShell({
   activeView,
   busy,
   children,
+  contextPanel,
   onRefresh,
   onViewChange,
+  secondaryContent,
+  secondaryWidthClassName,
 }: WorkbenchShellProps) {
   const activeItem = getPrimaryNavItem(activeView);
   const secondaryItems = secondaryNavItems[activeView];
   const mainRef = useRef<HTMLElement>(null);
+  const [secondaryOpen, setSecondaryOpen] = useState(true);
+  const [contextOpen, setContextOpen] = useState(true);
+  const hasSecondary = secondaryItems.length > 0 || Boolean(secondaryContent);
+  const hasContextPanel = Boolean(contextPanel);
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, left: 0 });
   }, [activeView]);
 
+  useEffect(() => {
+    setSecondaryOpen(hasSecondary);
+  }, [activeView, hasSecondary]);
+
+  useEffect(() => {
+    setContextOpen(hasContextPanel);
+  }, [activeView, hasContextPanel]);
+
   return (
-    <SidebarProvider>
+    <SidebarProvider style={{ "--sidebar-width": "14rem" } as CSSProperties}>
       <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
         <Sidebar
           side="left"
           variant="sidebar"
           collapsible="icon"
-          className="w-64 border-e"
+          className="w-56 border-e"
         >
-          <SidebarHeader className="border-b px-3 py-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">
-                QLabs Workbench
-              </div>
-              <div className="truncate text-xs text-sidebar-muted-foreground">
-                Local MCP operations
+          <SidebarHeader className="flex h-14 justify-center border-b px-3 py-0">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <BrandLogo variant="mark" height={24} title="Qlik" />
+              <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+                <div className="truncate text-sm font-semibold">
+                  QLabs Workbench
+                </div>
+                <div className="truncate text-[11px] text-sidebar-muted-foreground">
+                  MCP control plane
+                </div>
               </div>
             </div>
           </SidebarHeader>
@@ -86,8 +128,8 @@ export function WorkbenchShell({
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
-          <SidebarFooter className="border-t p-3">
-            <div className="text-xs text-sidebar-muted-foreground">
+          <SidebarFooter className="border-t p-3 group-data-[collapsible=icon]:hidden">
+            <div className="truncate text-xs text-sidebar-muted-foreground">
               Admin UI
             </div>
           </SidebarFooter>
@@ -95,43 +137,115 @@ export function WorkbenchShell({
 
         <SecondarySidebar
           activeView={activeView}
+          open={secondaryOpen}
           title={activeItem.label}
           items={secondaryItems}
-        />
+          widthClassName={secondaryWidthClassName}
+          onOpenChange={setSecondaryOpen}
+        >
+          {secondaryContent}
+        </SecondarySidebar>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-surface-elevated/80 px-4 backdrop-blur">
-            <div className="md:hidden">
-              <SidebarTrigger />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-medium">
-                {activeItem.label}
-              </h1>
-            </div>
-            <div className="ms-auto flex min-w-0 items-center gap-2">
-              <ThemeSwitcher
-                themes={["qlik-bright", "qlik-dark"]}
-                mode="dropdown"
-                showSystem
-                size="sm"
-              />
-              <Button
-                variant="outline-subtle"
-                size="sm"
-                onClick={onRefresh}
-                disabled={busy}
-              >
-                {busy ? "Refreshing" : "Refresh"}
-              </Button>
-            </div>
-          </header>
+          <TopNav
+            className="border-b"
+            start={
+              <div className="flex min-w-0 items-center gap-2">
+                <SidebarTrigger />
+                {hasSecondary ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="hidden md:inline-flex"
+                    aria-label={
+                      secondaryOpen
+                        ? "Collapse section navigation"
+                        : "Expand section navigation"
+                    }
+                    onClick={() => setSecondaryOpen((open) => !open)}
+                  >
+                    {secondaryOpen ? (
+                      <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </Button>
+                ) : null}
+                <Breadcrumb>
+                  <BreadcrumbList>
+                    <BreadcrumbItem className="hidden sm:inline-flex">
+                      Admin
+                    </BreadcrumbItem>
+                    <BreadcrumbSeparator className="hidden sm:inline-flex" />
+                    <BreadcrumbItem>
+                      <BreadcrumbPage>{activeItem.label}</BreadcrumbPage>
+                    </BreadcrumbItem>
+                  </BreadcrumbList>
+                </Breadcrumb>
+              </div>
+            }
+            end={
+              <div className="ms-auto flex min-w-0 items-center gap-2">
+                {hasContextPanel ? (
+                  <Button
+                    variant="outline-subtle"
+                    size="icon-sm"
+                    className="hidden xl:inline-flex"
+                    aria-label={
+                      contextOpen
+                        ? "Collapse context panel"
+                        : "Expand context panel"
+                    }
+                    onClick={() => setContextOpen((open) => !open)}
+                  >
+                    {contextOpen ? (
+                      <PanelRightClose className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </Button>
+                ) : null}
+                <ThemeSwitcher
+                  themes={["qlik-bright", "qlik-dark"]}
+                  mode="dropdown"
+                  showSystem
+                  size="sm"
+                />
+                <Button
+                  variant="outline-subtle"
+                  size="icon-sm"
+                  onClick={onRefresh}
+                  disabled={busy}
+                  aria-label={busy ? "Refreshing" : "Refresh"}
+                >
+                  <RefreshCw
+                    className={cn("h-4 w-4", busy && "animate-spin")}
+                    aria-hidden="true"
+                  />
+                </Button>
+              </div>
+            }
+          />
 
-          <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto">
-            <PageShell width="full" className="px-4 py-4 sm:px-6 lg:px-6">
-              {children}
-            </PageShell>
-          </main>
+          <div className="flex min-h-0 flex-1">
+            <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto">
+              <PageShell width="full" className="px-3 py-3 sm:px-4 lg:px-5">
+                {children}
+              </PageShell>
+            </main>
+            {hasContextPanel ? (
+              <aside
+                aria-label="Context panel"
+                data-state={contextOpen ? "expanded" : "collapsed"}
+                className={cn(
+                  "hidden shrink-0 overflow-hidden border-s bg-background transition-[width] duration-base ease-entrance xl:flex",
+                  contextOpen ? "w-80" : "w-0",
+                )}
+              >
+                <div className="h-full w-80 shrink-0">{contextPanel}</div>
+              </aside>
+            ) : null}
+          </div>
         </div>
       </div>
     </SidebarProvider>
@@ -152,7 +266,7 @@ function PrimaryNavButton(props: {
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={isActive}
-        className="h-10 w-full px-3"
+        className="h-9 w-full px-3 text-sm"
         onClick={() => {
           props.onViewChange(props.item.id);
           if (window.location.hash) {
@@ -185,66 +299,87 @@ function PrimaryNavButton(props: {
 
 function SecondarySidebar(props: {
   activeView: ViewKey;
+  children?: ReactNode;
+  open: boolean;
   title: string;
   items: SecondaryNavItem[];
+  onOpenChange: (open: boolean) => void;
+  widthClassName?: string;
 }) {
   const [selectedItem, setSelectedItem] = useState(props.items[0]?.id ?? "");
+  const widthClassName = props.widthClassName ?? "w-60";
 
   useEffect(() => {
     setSelectedItem(props.items[0]?.id ?? "");
   }, [props.activeView, props.items]);
 
-  if (props.items.length === 0) return null;
+  if (props.items.length === 0 && !props.children) return null;
 
   return (
-    <Sidebar
-      side="left"
-      variant="sidebar"
-      collapsible="none"
-      className="hidden w-72 animate-in border-e duration-base ease-entrance md:flex"
+    <aside
+      aria-label={`${props.title} sections`}
+      data-state={props.open ? "expanded" : "collapsed"}
+      className={cn(
+        "hidden shrink-0 overflow-hidden border-e bg-sidebar text-sidebar-foreground transition-[width] duration-base ease-entrance md:flex",
+        props.open ? widthClassName : "w-0",
+      )}
     >
-      <SidebarHeader className="flex h-14 flex-row items-center border-b px-4">
-        <h2 className="truncate text-sm font-medium">{props.title}</h2>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {props.items.map((item) => {
-                const Icon = item.icon;
-                const sectionId = `${props.activeView}-${item.id}`;
-                return (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={selectedItem === item.id}
-                      className="h-auto w-full gap-3 px-3 py-2"
-                    >
-                      <a
-                        href={`#${sectionId}`}
-                        onClick={() => setSelectedItem(item.id)}
-                      >
-                        <Icon
-                          className="mt-0.5 h-5 w-5 shrink-0 self-start"
-                          aria-hidden="true"
-                        />
-                        <div className="min-w-0 flex-1 text-start">
-                          <div className="truncate font-medium">
-                            {item.label}
-                          </div>
-                          <div className="mt-0.5 line-clamp-2 text-xs text-sidebar-muted-foreground">
-                            {item.description}
-                          </div>
-                        </div>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-    </Sidebar>
+      <div className={cn("flex h-full shrink-0 flex-col", widthClassName)}>
+        <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
+          <h2 className="truncate text-sm font-medium">{props.title}</h2>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Collapse section navigation"
+            onClick={() => props.onOpenChange(false)}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+        {props.children ? (
+          <div className="min-h-0 flex-1">{props.children}</div>
+        ) : (
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {props.items.map((item) => {
+                    const Icon = item.icon;
+                    const sectionId = `${props.activeView}-${item.id}`;
+                    return (
+                      <SidebarMenuItem key={item.id}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={selectedItem === item.id}
+                          className="h-auto w-full gap-2 px-3 py-2 text-sm"
+                        >
+                          <a
+                            href={`#${sectionId}`}
+                            onClick={() => setSelectedItem(item.id)}
+                          >
+                            <Icon
+                              className="mt-0.5 h-4 w-4 shrink-0 self-start"
+                              aria-hidden="true"
+                            />
+                            <div className="min-w-0 flex-1 text-start">
+                              <div className="truncate font-medium">
+                                {item.label}
+                              </div>
+                              <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-sidebar-muted-foreground">
+                                {item.description}
+                              </div>
+                            </div>
+                          </a>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        )}
+      </div>
+    </aside>
   );
 }

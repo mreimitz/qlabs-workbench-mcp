@@ -2,7 +2,12 @@
 
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@brand/ui";
-import { AssetsView } from "./workbench/assets-view";
+import {
+  AssetsContextPanel,
+  AssetsSecondaryNavigation,
+  AssetsView,
+  AssetsWorkspaceProvider,
+} from "./workbench/assets-view";
 import { prettyJson } from "./workbench/format";
 import { OverviewView } from "./workbench/overview-view";
 import { RunnerView, type ToolInventoryRow } from "./workbench/runner-view";
@@ -63,6 +68,50 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
   return btoa(binary);
 };
 
+const responseExcerpt = (text: string) =>
+  text.replace(/\s+/g, " ").trim().slice(0, 140);
+
+const readJsonPayload = async <T,>(
+  response: Response,
+  fallbackMessage: string,
+) => {
+  const text = await response.text();
+  if (!text) {
+    if (!response.ok) {
+      throw new Error(`${fallbackMessage} (${response.status})`);
+    }
+    return {} as T & { error?: string };
+  }
+
+  try {
+    return JSON.parse(text) as T & { error?: string };
+  } catch {
+    const excerpt = responseExcerpt(text);
+    const suffix = excerpt ? `: ${excerpt}` : "";
+    throw new Error(`${fallbackMessage} (${response.status})${suffix}`);
+  }
+};
+
+const expectJsonPayload = async <T,>(
+  response: Response,
+  fallbackMessage: string,
+) => {
+  const payload = await readJsonPayload<T>(response, fallbackMessage);
+  if (!response.ok) {
+    throw new Error(payload.error ?? `${fallbackMessage} (${response.status})`);
+  }
+  return payload;
+};
+
+const assertJsonOk = async (response: Response, fallbackMessage: string) => {
+  if (response.ok) return;
+  const payload = await readJsonPayload<{ error?: string }>(
+    response,
+    fallbackMessage,
+  );
+  throw new Error(payload.error ?? `${fallbackMessage} (${response.status})`);
+};
+
 export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
   const initialServerName =
     props.initialData.dashboard.servers.find(
@@ -111,10 +160,10 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
 
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
-      const payload = (await response.json()) as DashboardPayload & { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to refresh dashboard");
-      }
+      const payload = await expectJsonPayload<DashboardPayload>(
+        response,
+        "Failed to refresh dashboard",
+      );
       setDashboardData(payload);
       if (currentPath === "") {
         setBrowseData(payload.rootBrowse);
@@ -274,10 +323,10 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
       const response = await fetch(`/api/storage/browse?path=${encodeURIComponent(path)}`, {
         cache: "no-store",
       });
-      const payload = (await response.json()) as StorageBrowse & { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to browse storage");
-      }
+      const payload = await expectJsonPayload<StorageBrowse>(
+        response,
+        "Failed to browse storage",
+      );
       setCurrentPath(payload.path);
       setBrowseData(payload);
     } catch (error) {
@@ -301,10 +350,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ path }),
       });
-      if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error ?? "Failed to create folder");
-      }
+      await assertJsonOk(response, "Failed to create folder");
       setFolderName("");
       await browsePath(currentPath);
       setFlash(`Created folder: ${path}`);
@@ -330,10 +376,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ path, contentBase64 }),
       });
-      if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error ?? "Failed to upload file");
-      }
+      await assertJsonOk(response, "Failed to upload file");
       await browsePath(currentPath);
       setFlash(`Uploaded file: ${path}`);
     } catch (error) {
@@ -354,10 +397,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabled }),
       });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to update server");
-      }
+      await assertJsonOk(response, "Failed to update server");
       await refreshDashboard();
       setFlash(`${enabled ? "Enabled" : "Disabled"} ${serverName}`);
     } catch (error) {
@@ -417,10 +457,10 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
           arguments: parsedToolArgs.value,
         }),
       });
-      const payload = (await response.json()) as { error?: string; run?: DashboardPayload["dashboard"]["runs"][number] };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to run tool");
-      }
+      const payload = await expectJsonPayload<{
+        error?: string;
+        run?: DashboardPayload["dashboard"]["runs"][number];
+      }>(response, "Failed to run tool");
       if (!payload.run) {
         throw new Error("Run completed without a returned record");
       }
@@ -469,10 +509,10 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
           keywords,
         }),
       });
-      const payload = (await response.json()) as { error?: string; asset?: AssetRecord };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to upload asset");
-      }
+      await expectJsonPayload<{ error?: string; asset?: AssetRecord }>(
+        response,
+        "Failed to upload asset",
+      );
       setAssetKeywords("");
       await refreshDashboard();
       setFlash(`Added asset: ${file.name}`);
@@ -500,15 +540,35 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ keywords }),
       });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to tag asset");
-      }
+      await assertJsonOk(response, "Failed to tag asset");
       setAssetTagDrafts((current) => ({ ...current, [filename]: "" }));
       await refreshDashboard();
       setFlash(`Tagged asset: ${filename}`);
     } catch (error) {
       setFlash(error instanceof Error ? error.message : "Failed to tag asset");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteAsset = async (filename: string) => {
+    setBusy(true);
+    setFlash(null);
+
+    try {
+      const response = await fetch(`/api/assets/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      await assertJsonOk(response, "Failed to delete asset");
+      setAssetTagDrafts((current) => {
+        const next = { ...current };
+        delete next[filename];
+        return next;
+      });
+      await refreshDashboard();
+      setFlash(`Deleted asset: ${filename}`);
+    } catch (error) {
+      setFlash(error instanceof Error ? error.message : "Failed to delete asset");
     } finally {
       setBusy(false);
     }
@@ -520,18 +580,43 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
   };
 
   return (
-    <WorkbenchShell
-      activeView={activeView}
+    <AssetsWorkspaceProvider
+      active={activeView === "assets"}
+      assetKeywordFilter={assetKeywordFilter}
+      assetKeywords={assetKeywords}
+      assetTagDrafts={assetTagDrafts}
+      assetViewMode={assetViewMode}
       busy={busy}
-      onRefresh={refreshDashboard}
-      onViewChange={setActiveView}
+      filteredAssets={filteredAssets}
+      onAddAssetTags={addAssetTags}
+      onAssetKeywordFilterChange={setAssetKeywordFilter}
+      onAssetKeywordsChange={setAssetKeywords}
+      onAssetTagDraftChange={(filename, value) =>
+        setAssetTagDrafts((current) => ({ ...current, [filename]: value }))
+      }
+      onAssetViewModeChange={setAssetViewMode}
+      onDeleteAsset={deleteAsset}
+      onUploadAsset={uploadAsset}
+      qpsToolkitServer={qpsToolkitServer}
+      totalAssets={dashboardData.assets.assets.length}
     >
-      {flash ? (
-        <Alert variant={flashVariant} className="mb-6">
-          <AlertTitle>Workbench update</AlertTitle>
-          <AlertDescription>{flash}</AlertDescription>
-        </Alert>
-      ) : null}
+      <WorkbenchShell
+        activeView={activeView}
+        busy={busy}
+        contextPanel={activeView === "assets" ? <AssetsContextPanel /> : undefined}
+        onRefresh={refreshDashboard}
+        onViewChange={setActiveView}
+        secondaryContent={
+          activeView === "assets" ? <AssetsSecondaryNavigation /> : undefined
+        }
+        secondaryWidthClassName={activeView === "assets" ? "w-80" : undefined}
+      >
+        {flash ? (
+          <Alert variant={flashVariant} className="mb-6">
+            <AlertTitle>Workbench update</AlertTitle>
+            <AlertDescription>{flash}</AlertDescription>
+          </Alert>
+        ) : null}
 
       {activeView === "overview" ? (
         <OverviewView
@@ -586,24 +671,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
       ) : null}
 
       {activeView === "assets" ? (
-        <AssetsView
-          assetKeywordFilter={assetKeywordFilter}
-          assetKeywords={assetKeywords}
-          assetTagDrafts={assetTagDrafts}
-          assetViewMode={assetViewMode}
-          busy={busy}
-          filteredAssets={filteredAssets}
-          onAddAssetTags={addAssetTags}
-          onAssetKeywordFilterChange={setAssetKeywordFilter}
-          onAssetKeywordsChange={setAssetKeywords}
-          onAssetTagDraftChange={(filename, value) =>
-            setAssetTagDrafts((current) => ({ ...current, [filename]: value }))
-          }
-          onAssetViewModeChange={setAssetViewMode}
-          onUploadAsset={uploadAsset}
-          qpsToolkitServer={qpsToolkitServer}
-          totalAssets={dashboardData.assets.assets.length}
-        />
+        <AssetsView />
       ) : null}
 
       {activeView === "storage" ? (
@@ -624,6 +692,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
           storageSearch={storageSearch}
         />
       ) : null}
-    </WorkbenchShell>
+      </WorkbenchShell>
+    </AssetsWorkspaceProvider>
   );
 }
