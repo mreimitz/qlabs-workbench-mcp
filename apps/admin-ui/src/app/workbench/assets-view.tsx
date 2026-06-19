@@ -64,8 +64,12 @@ import {
 import {
   assetTags,
   buildAssetFolderTree,
+  formatAssetFolderPath,
   folderIdToPath,
+  IMAGE_LIBRARY_NODE_ID,
   joinAssetPath,
+  pathToFolderId,
+  TEMPLATE_LIBRARY_NODE_ID,
   type AssetFolderNode,
 } from "./assets-helpers";
 import { formatFileTimestamp } from "./format";
@@ -163,7 +167,10 @@ const collectFolderIds = (nodes: TreeNode<{ path: string }>[]) => {
 export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [currentFolder, setCurrentFolder] = useState("");
-  const [folderTreeExpandedIds, setFolderTreeExpandedIds] = useState<string[]>(["/"]);
+  const [folderTreeExpandedIds, setFolderTreeExpandedIds] = useState<string[]>([
+    IMAGE_LIBRARY_NODE_ID,
+    TEMPLATE_LIBRARY_NODE_ID,
+  ]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [selectedAssetPath, setSelectedAssetPath] = useState<string | null>(
@@ -211,7 +218,13 @@ export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
 
   useEffect(() => {
     setFolderTreeExpandedIds((current) =>
-      Array.from(new Set(["/", ...current.filter((id) => folderIds.includes(id))])),
+      Array.from(
+        new Set([
+          IMAGE_LIBRARY_NODE_ID,
+          TEMPLATE_LIBRARY_NODE_ID,
+          ...current.filter((id) => folderIds.includes(id)),
+        ]),
+      ),
     );
   }, [folderIds]);
 
@@ -355,7 +368,7 @@ function UploadAssetDialog() {
         <DialogHeader>
           <DialogTitle>Upload asset</DialogTitle>
           <DialogDescription>
-            Upload a file to {workspace.currentFolder || "/"}.
+            Upload a file to {formatAssetFolderPath(workspace.currentFolder)}.
           </DialogDescription>
         </DialogHeader>
         <FileUpload
@@ -434,16 +447,18 @@ export function AssetsSecondaryNavigation() {
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="border-b p-3">
         <div className="text-xs font-medium uppercase text-muted-foreground">Folders</div>
-        <div className="mt-1 truncate text-sm">{workspace.currentFolder || "/"}</div>
+        <div className="mt-1 truncate text-sm">
+          {formatAssetFolderPath(workspace.currentFolder)}
+        </div>
       </div>
       <ScrollArea className="min-h-0 flex-1 p-3">
         <Tree
           nodes={workspace.folderTree}
           expandedIds={workspace.folderTreeExpandedIds}
-          selectedIds={[workspace.currentFolder || "/"]}
+          selectedIds={[pathToFolderId(workspace.currentFolder)]}
           onExpandedChange={workspace.setFolderTreeExpandedIds}
           onSelectionChange={(ids) => {
-            const selectedId = ids.at(-1) ?? "/";
+            const selectedId = ids.at(-1) ?? IMAGE_LIBRARY_NODE_ID;
             workspace.setCurrentFolder(folderIdToPath(selectedId));
           }}
           selectionMode="single"
@@ -493,7 +508,7 @@ function ManagedContentPane(props: {
         <StatePanel
           kind="empty"
           title="No assets found"
-          description="Upload a file, import QPS seed assets, or change the current folder/search."
+          description="Upload a file or change the current folder/search."
         />
       ) : props.viewMode === "grid" ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
