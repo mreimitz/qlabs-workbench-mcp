@@ -21,13 +21,32 @@ This document is the single source of truth for tool behavior.
 
 - `assets_search`
   - Input: `{ "keyword": string }`
-  - Output: JSON `{ "results": string[] }` where each entry is a filename in `ASSETS_ROOT`
+  - Output: JSON `{ "results": string[] }` where each entry is a managed relative path in `ASSETS_ROOT`
 - `assets_add`
   - Input: `{ "filename": string, "keyword": string, "contentBase64": string }`
-  - Output: JSON `{ "ok": true, "filename": string, "bytesWritten": number }`
+  - Compatibility behavior: writes the file at the root of `ASSETS_ROOT`
+  - Output: JSON `{ "ok": true, "filename": string, "path": string, "bytesWritten": number }`
 - `assets_tag`
   - Input: `{ "filename": string, "keyword": string }`
-  - Output: JSON `{ "ok": true, "filename": string }`
+  - Compatibility behavior: treats `filename` as a managed relative path
+  - Output: JSON `{ "ok": true, "filename": string, "path": string }`
+- `assets_browse`
+  - Input: `{ "path"?: string }`
+  - Output: JSON `{ "path": string, "entries": [{ "name": string, "kind": "folder" | "file", "path": string, "asset"?: object }] }`
+- `assets_get`
+  - Input: `{ "path": string }`
+  - Output: JSON `{ "ok": boolean, "asset": object | null }`
+- `assets_update_metadata`
+  - Input: `{ "path": string, "metadata": object }`
+  - Output: JSON `{ "ok": true, "asset": object }`
+- `assets_delete`
+  - Input: `{ "path": string }`
+  - Output: JSON `{ "ok": true, "path": string }`
+- `assets_import_qps`
+  - Input: `{}`
+  - Output: JSON `{ "ok": true, "imported": number, "skipped": number, "total": number }`
+
+`ASSETS_ROOT/index.json` is the canonical asset index. The service also generates QPS-compatible catalog files under `ASSETS_ROOT` so lookup tools can resolve icons, product images, brand art, and brands from the managed asset library.
 
 ## mcp-playwright
 
@@ -53,7 +72,7 @@ QPS MCP tools own deterministic, non-LLM work that can be executed without promp
 
 Canonical tools use the `qps_*` prefix. Short aliases such as `pick_hero` and `resolve_asset` are compatibility aliases and should stay behavior-equivalent to their canonical counterparts until a documented deprecation removes them.
 
-Mounted toolkit metadata is read-only by default. `PUT /assets/meta` is enabled only when `QPS_TOOLKIT_WRITE_MODE=metadata`; writes must be treated as dev operations against the mounted source checkout.
+QPS asset resolution reads generated catalogs from the managed `ASSETS_ROOT` when `MANAGED_ASSETS_ROOT` is configured. The mounted toolkit remains the source for routes, tokens, policies, and other non-asset content.
 
 - `qps_route_request`
   - Input: `{ "query": string, "level"?: "command" | "skill", "top"?: number }`

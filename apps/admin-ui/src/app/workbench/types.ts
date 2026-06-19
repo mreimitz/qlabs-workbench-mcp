@@ -60,9 +60,28 @@ export type StorageBrowse = {
 };
 
 export type AssetRecord = {
+  path: string;
   filename: string;
-  keywords: string[];
+  title: string;
+  kind: string;
+  tags: string[];
+  keywords?: string[];
+  mime: string;
+  source: string;
+  sourcePath?: string;
+  size: number;
+  mtimeMs: number;
   url: string;
+  slots?: string[];
+  area?: string;
+  type?: string;
+  variant?: string;
+  useWhen?: string;
+  aliases?: string[];
+  categories?: string[];
+  qlikCategory?: string;
+  license?: string;
+  hex?: string;
 };
 
 export type DashboardPayload = {

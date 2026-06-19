@@ -46,7 +46,8 @@ Local Docker Desktop stack that runs multiple MCP servers plus an admin UI, file
 - The default local mount is `./local/qps-toolkit`; point `QPS_TOOLKIT_ROOT` at a real qps-toolkit checkout (for example your local `qps-toolkit` repo) if you want the QPS tools and shared assets fully active.
 - When enabled without mounted toolkit content, the admin UI marks the integration as `Setup required` instead of treating it as a broken service.
 - When `ENABLE_QPS_TOOLKIT=false`, the default stack omits QPS entirely from the service registry and endpoints list.
-- The Admin UI “Assets” view can browse `plugin/shared/assets` (folder tree + gallery + detail panel) and can update tags in the pack/metadata JSONs when the mount is writable.
+- The Admin UI “Assets” view manages the canonical `ASSETS_ROOT` library. Use `Import QPS` or the `assets_import_qps` MCP tool to copy missing QPS seed assets into the managed asset volume without overwriting existing managed edits.
+- QPS asset lookup reads generated compatibility catalogs from `ASSETS_ROOT`; the QPS checkout remains a seed/source for routes, policies, tokens, and initial assets.
 
 ## Local env validation
 

@@ -1,136 +1,87 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { asyncRoute, createErrorResponse, envFlag, parseBase64Strict, requiredEnv, withRequestId } from "@qlabs/server-utils";
 import express, { Request, Response } from "express";
 import * as z from "zod/v4";
-import path from "node:path";
-import fs from "node:fs/promises";
-import { asyncRoute, createErrorResponse, parseBase64Strict, withRequestId } from "@qlabs/server-utils";
-import { removeAssetFromIndex, type AssetIndex } from "./asset-index.js";
-
-const requiredEnv = (name: string) => {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
-};
-
-const envFlag = (value: string | undefined, fallback = false) => {
-  if (!value) return fallback;
-  return /^(1|true|yes|on)$/i.test(value);
-};
+import {
+  createAssetStore,
+  type AssetKind,
+  type AssetMetadataPatch,
+} from "./asset-store.js";
 
 const port = Number.parseInt(process.env.PORT ?? "7040", 10);
 const assetsRoot = requiredEnv("ASSETS_ROOT");
 const seedDemoContent = envFlag(process.env.SEED_DEMO_CONTENT, true);
+const importQpsOnStart = envFlag(process.env.IMPORT_QPS_ASSETS_ON_START, false);
 const maxUploadBytes = Number.parseInt(process.env.MAX_UPLOAD_BYTES ?? "10485760", 10);
-const indexPath = path.posix.join(assetsRoot, "index.json");
+const qpsAssetsRoot =
+  process.env.QPS_ASSETS_ROOT ??
+  (process.env.QPS_TOOLKIT_PLUGIN_ROOT
+    ? `${process.env.QPS_TOOLKIT_PLUGIN_ROOT.replace(/\/+$/, "")}/shared/assets`
+    : undefined);
 
-type Index = AssetIndex;
-type AssetRecord = { filename: string; keywords: string[]; url: string };
+const store = createAssetStore({ assetsRoot, qpsAssetsRoot });
 
-const ensureRoot = async () => {
-  await fs.mkdir(assetsRoot, { recursive: true });
+const metadataFromRequest = (body: unknown): AssetMetadataPatch => {
+  const source = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const meta = source.metadata && typeof source.metadata === "object"
+    ? (source.metadata as Record<string, unknown>)
+    : source;
+
+  const stringValue = (key: string) => {
+    const value = meta[key];
+    return typeof value === "string" ? value : undefined;
+  };
+  const stringArray = (key: string) => {
+    const value = meta[key];
+    return Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string")
+      : undefined;
+  };
+
+  const keyword = typeof source.keyword === "string" ? source.keyword : undefined;
+  const keywords = Array.isArray(source.keywords)
+    ? source.keywords.filter((entry): entry is string => typeof entry === "string")
+    : undefined;
+  const tags = stringArray("tags") ?? keywords ?? (keyword ? [keyword] : undefined);
+
+  return {
+    title: stringValue("title"),
+    kind: stringValue("kind") as AssetKind | undefined,
+    tags,
+    source: stringValue("source") as AssetMetadataPatch["source"],
+    sourcePath: stringValue("sourcePath"),
+    slots: stringArray("slots"),
+    area: stringValue("area"),
+    type: stringValue("type"),
+    variant: stringValue("variant"),
+    useWhen: stringValue("useWhen") ?? stringValue("use_when"),
+    aliases: stringArray("aliases"),
+    categories: stringArray("categories"),
+    qlikCategory: stringValue("qlikCategory") ?? stringValue("qlik_category"),
+    license: stringValue("license"),
+    hex: stringValue("hex"),
+  };
 };
 
-const writeFileIfMissing = async (targetPath: string, contents: string) => {
-  try {
-    await fs.access(targetPath);
-  } catch {
-    await fs.writeFile(targetPath, contents, "utf8");
-  }
-};
-
-const readIndex = async (): Promise<Index> => {
-  await ensureRoot();
-  try {
-    const raw = await fs.readFile(indexPath, "utf8");
-    const parsed = JSON.parse(raw) as Index;
-    if (!parsed?.keywords || typeof parsed.keywords !== "object") return { keywords: {} };
-    return parsed;
-  } catch {
-    return { keywords: {} };
-  }
-};
-
-const writeIndex = async (idx: Index) => {
-  await ensureRoot();
-  await fs.writeFile(indexPath, JSON.stringify(idx, null, 2));
-};
-
-const addToIndex = async (keyword: string, assetPath: string) => {
-  const idx = await readIndex();
-  const k = keyword.trim().toLowerCase();
-  if (!k) return;
-  const list = idx.keywords[k] ?? [];
-  if (!list.includes(assetPath)) list.push(assetPath);
-  idx.keywords[k] = list;
-  await writeIndex(idx);
-};
-
-const collectKeywordsForAsset = (idx: Index, filename: string) =>
-  Object.entries(idx.keywords)
-    .filter(([, files]) => files.includes(filename))
-    .map(([keyword]) => keyword)
-    .sort();
-
-const searchIndex = async (keyword: string) => {
-  const idx = await readIndex();
-  const k = keyword.trim().toLowerCase();
-  const results = idx.keywords[k] ?? [];
-  return results;
-};
-
-const listAssets = async (): Promise<AssetRecord[]> => {
-  await ensureRoot();
-  const idx = await readIndex();
-  const dirEntries = await fs.readdir(assetsRoot, { withFileTypes: true });
-  const files = dirEntries
-    .filter((entry) => entry.isFile() && entry.name !== "index.json")
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right));
-
-  return files.map((filename) => ({
-    filename,
-    keywords: collectKeywordsForAsset(idx, filename),
-    url: `/asset-files/${encodeURIComponent(filename)}`,
-  }));
-};
-
-const detectContentType = (filename: string) => {
-  const ext = path.posix.extname(filename).toLowerCase();
-  if (ext === ".png") return "image/png";
-  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-  if (ext === ".gif") return "image/gif";
-  if (ext === ".webp") return "image/webp";
-  if (ext === ".svg") return "image/svg+xml";
-  return "application/octet-stream";
-};
-
-const normalizeFlatFilename = (filename: string) => {
-  const trimmed = filename.trim();
-  const safeName = path.posix.basename(trimmed);
-  if (!safeName || safeName !== trimmed || trimmed.includes("\\") || trimmed.includes("/")) {
-    throw new Error("Invalid filename");
-  }
-  return safeName;
-};
-
-const assertAssetExists = async (filename: string) => {
-  const assetPath = path.posix.join(assetsRoot, filename);
-  await fs.access(assetPath);
-  return assetPath;
+const assetPathFromBody = (body: unknown) => {
+  if (!body || typeof body !== "object") return "";
+  const source = body as Record<string, unknown>;
+  const path = typeof source.path === "string" ? source.path : "";
+  const filename = typeof source.filename === "string" ? source.filename : "";
+  return path || filename;
 };
 
 const seedAssets = async () => {
+  await store.syncIndex();
   if (!seedDemoContent) return;
 
-  await ensureRoot();
+  const index = await store.readIndex();
+  if (index.assets["hero-demo.svg"]) return;
 
-  const demoAssetPath = path.posix.join(assetsRoot, "hero-demo.svg");
-  await writeFileIfMissing(
-    demoAssetPath,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  await store.writeAsset({
+    path: "hero-demo.svg",
+    content: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
   <title id="title">QLabs Hero Demo</title>
   <desc id="desc">Abstract local operations hero artwork for the seeded asset catalog.</desc>
   <defs>
@@ -156,145 +107,257 @@ const seedAssets = async () => {
   <rect x="810" y="326" width="140" height="18" rx="9" fill="#dbeafe" fill-opacity="0.42"/>
   <rect x="810" y="372" width="120" height="18" rx="9" fill="#dbeafe" fill-opacity="0.42"/>
 </svg>
-`,
-  );
-
-  await addToIndex("hero", "hero-demo.svg");
-  await addToIndex("dashboard", "hero-demo.svg");
-  await addToIndex("seeded", "hero-demo.svg");
+`),
+    metadata: {
+      title: "QLabs Hero Demo",
+      kind: "image",
+      tags: ["hero", "dashboard", "seeded"],
+      source: "seed",
+    },
+  });
 };
 
 const getServer = () => {
-  const server = new McpServer({ name: "mcp-assets", version: "0.1.0" });
+  const server = new McpServer({ name: "mcp-assets", version: "0.2.0" });
 
   server.registerTool(
     "assets_search",
     {
-      description: "Search assets by keyword",
+      description: "Search managed assets by keyword",
       inputSchema: { keyword: z.string() },
     },
     async (args: { keyword: string }) => {
-      const results = await searchIndex(args.keyword);
+      const results = await store.searchAssets(args.keyword);
       return { content: [{ type: "text", text: JSON.stringify({ results }) }] };
-    }
+    },
   );
 
   server.registerTool(
     "assets_add",
     {
-      description: "Add an asset file and tag it with a keyword",
+      description: "Add a managed asset file and tag it with a keyword",
       inputSchema: { filename: z.string(), keyword: z.string(), contentBase64: z.string() },
     },
     async (args: { filename: string; keyword: string; contentBase64: string }) => {
-      await ensureRoot();
-      const safeName = normalizeFlatFilename(args.filename);
-      const assetPath = path.posix.join(assetsRoot, safeName);
       const buf = parseBase64Strict(args.contentBase64, maxUploadBytes);
-      await fs.writeFile(assetPath, buf);
-      await addToIndex(args.keyword, safeName);
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, filename: safeName, bytesWritten: buf.byteLength }) }] };
-    }
+      const asset = await store.writeAsset({
+        path: args.filename,
+        content: buf,
+        metadata: { tags: [args.keyword], source: "upload" },
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              ok: true,
+              filename: asset.filename,
+              path: asset.path,
+              bytesWritten: buf.byteLength,
+            }),
+          },
+        ],
+      };
+    },
   );
 
   server.registerTool(
     "assets_tag",
     {
-      description: "Tag an existing asset with a keyword",
+      description: "Tag an existing managed asset with a keyword",
       inputSchema: { filename: z.string(), keyword: z.string() },
     },
     async (args: { filename: string; keyword: string }) => {
-      const safeName = normalizeFlatFilename(args.filename);
-      await assertAssetExists(safeName);
-      await addToIndex(args.keyword, safeName);
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, filename: safeName }) }] };
-    }
+      const existing = (await store.listAssets()).find((asset) => asset.path === args.filename);
+      const tags = [...(existing?.tags ?? []), args.keyword];
+      const asset = await store.updateMetadata(args.filename, { tags });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ ok: true, filename: asset.filename, path: asset.path }),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "assets_browse",
+    {
+      description: "Browse folders and files in the managed asset library",
+      inputSchema: { path: z.string().optional() },
+    },
+    async (args: { path?: string }) => {
+      const payload = await store.browse(args.path ?? "");
+      return { content: [{ type: "text", text: JSON.stringify(payload) }] };
+    },
+  );
+
+  server.registerTool(
+    "assets_get",
+    {
+      description: "Get managed asset metadata by path",
+      inputSchema: { path: z.string() },
+    },
+    async (args: { path: string }) => {
+      const asset = (await store.listAssets()).find((entry) => entry.path === args.path) ?? null;
+      return { content: [{ type: "text", text: JSON.stringify({ ok: Boolean(asset), asset }) }] };
+    },
+  );
+
+  server.registerTool(
+    "assets_update_metadata",
+    {
+      description: "Update managed asset metadata",
+      inputSchema: { path: z.string(), metadata: z.record(z.string(), z.unknown()) },
+    },
+    async (args: { path: string; metadata: AssetMetadataPatch }) => {
+      const asset = await store.updateMetadata(args.path, args.metadata);
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, asset }) }] };
+    },
+  );
+
+  server.registerTool(
+    "assets_delete",
+    {
+      description: "Delete a managed asset by path",
+      inputSchema: { path: z.string() },
+    },
+    async (args: { path: string }) => {
+      const result = await store.deleteAsset(args.path);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    },
+  );
+
+  server.registerTool(
+    "assets_import_qps",
+    {
+      description: "Import missing qps-toolkit seed assets into the managed asset library",
+      inputSchema: {},
+    },
+    async () => {
+      const result = await store.importQpsAssets();
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...result }) }] };
+    },
   );
 
   return server;
 };
 
 const app = express();
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "20mb" }));
 app.use(withRequestId());
 
 await seedAssets();
+if (importQpsOnStart) await store.importQpsAssets();
 
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({ ok: true, assetsRoot, seeded: seedDemoContent });
-});
-
-app.get("/assets", async (req: Request, res: Response) => {
-  const keyword = typeof req.query.keyword === "string" ? req.query.keyword.trim() : "";
-  const assets = await listAssets();
-  if (!keyword) {
-    res.json({ assets });
-    return;
-  }
-  const normalized = keyword.toLowerCase();
+app.get("/health", asyncRoute(async (_req: Request, res: Response) => {
   res.json({
-    assets: assets.filter((asset) => asset.keywords.some((entry) => entry.includes(normalized))),
+    ok: true,
+    assetsRoot,
+    qpsAssetsRoot,
+    seeded: seedDemoContent,
+    importQpsOnStart,
+    assetCount: (await store.listAssets()).length,
   });
-});
+}));
+
+app.get("/assets", asyncRoute(async (req: Request, res: Response) => {
+  const keyword = typeof req.query.keyword === "string" ? req.query.keyword : "";
+  const assetPath = typeof req.query.path === "string" ? req.query.path : "";
+  const assets = await store.listAssets({ keyword, path: assetPath });
+  res.json({ assets });
+}));
+
+app.get("/assets/browse", asyncRoute(async (req: Request, res: Response) => {
+  const assetPath = typeof req.query.path === "string" ? req.query.path : "";
+  res.json(await store.browse(assetPath));
+}));
 
 app.post("/assets", asyncRoute(async (req: Request, res: Response) => {
-  const filename = typeof req.body?.filename === "string" ? req.body.filename : "";
+  const assetPath = assetPathFromBody(req.body);
   const contentBase64 = typeof req.body?.contentBase64 === "string" ? req.body.contentBase64 : "";
-  const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords.filter((value: unknown) => typeof value === "string") : [];
-
-  if (!filename || !contentBase64) {
-    res.status(400).json({ error: "filename and contentBase64 are required" });
+  if (!assetPath || !contentBase64) {
+    res.status(400).json({ error: "path/filename and contentBase64 are required" });
     return;
   }
 
-  await ensureRoot();
-  const safeName = normalizeFlatFilename(filename);
-  const assetPath = path.posix.join(assetsRoot, safeName);
   const buf = parseBase64Strict(contentBase64, maxUploadBytes);
-  await fs.writeFile(assetPath, buf);
-
-  for (const keyword of keywords) {
-    await addToIndex(keyword, safeName);
-  }
-
-  const assets = await listAssets();
-  const asset = assets.find((entry) => entry.filename === safeName);
+  const asset = await store.writeAsset({
+    path: assetPath,
+    content: buf,
+    metadata: { ...metadataFromRequest(req.body), source: "upload" },
+  });
   res.json({ ok: true, asset, bytesWritten: buf.byteLength });
 }));
 
+app.put("/assets/meta", asyncRoute(async (req: Request, res: Response) => {
+  const queryPath = typeof req.query.path === "string" ? req.query.path : "";
+  const assetPath = queryPath || assetPathFromBody(req.body);
+  const metadata = metadataFromRequest(req.body);
+  if (!assetPath) {
+    res.status(400).json({ error: "path is required" });
+    return;
+  }
+
+  const asset = await store.updateMetadata(assetPath, metadata);
+  res.json({ ok: true, asset });
+}));
+
+app.post("/assets/import/qps", asyncRoute(async (_req: Request, res: Response) => {
+  res.json({ ok: true, ...(await store.importQpsAssets()) });
+}));
+
+app.delete("/assets", asyncRoute(async (req: Request, res: Response) => {
+  const assetPath = typeof req.query.path === "string" ? req.query.path : "";
+  if (!assetPath) {
+    res.status(400).json({ error: "path is required" });
+    return;
+  }
+
+  res.json(await store.deleteAsset(assetPath));
+}));
+
 app.post("/assets/:filename/tags", asyncRoute(async (req: Request, res: Response) => {
-  const safeName = normalizeFlatFilename(req.params.filename);
-  const keywords = Array.isArray(req.body?.keywords) ? req.body.keywords.filter((value: unknown) => typeof value === "string") : [];
+  const filename = req.params.filename;
+  const keywords = Array.isArray(req.body?.keywords)
+    ? req.body.keywords.filter((value: unknown): value is string => typeof value === "string")
+    : typeof req.body?.keyword === "string"
+      ? [req.body.keyword]
+      : [];
   if (keywords.length === 0) {
     res.status(400).json({ error: "keywords are required" });
     return;
   }
-  await assertAssetExists(safeName);
 
-  for (const keyword of keywords) {
-    await addToIndex(keyword, safeName);
-  }
-
-  const assets = await listAssets();
-  const asset = assets.find((entry) => entry.filename === safeName);
+  const existing = (await store.listAssets()).find((asset) => asset.path === filename);
+  const asset = await store.updateMetadata(filename, {
+    tags: [...(existing?.tags ?? []), ...keywords],
+  });
   res.json({ ok: true, asset });
 }));
 
 app.delete("/assets/:filename", asyncRoute(async (req: Request, res: Response) => {
-  const safeName = normalizeFlatFilename(req.params.filename);
-  const assetPath = await assertAssetExists(safeName);
+  res.json(await store.deleteAsset(req.params.filename));
+}));
 
-  await fs.unlink(assetPath);
-  await writeIndex(removeAssetFromIndex(await readIndex(), safeName));
+app.get("/asset-files", asyncRoute(async (req: Request, res: Response) => {
+  const assetPath = typeof req.query.path === "string" ? req.query.path : "";
+  if (!assetPath) {
+    res.status(400).json({ error: "path is required" });
+    return;
+  }
 
-  res.json({ ok: true, filename: safeName });
+  const file = await store.readFile(assetPath);
+  res.setHeader("content-type", file.contentType);
+  res.send(file.buffer);
 }));
 
 app.get("/asset-files/:filename", asyncRoute(async (req: Request, res: Response) => {
-  const safeName = normalizeFlatFilename(req.params.filename);
-  const assetPath = await assertAssetExists(safeName);
-  const file = await fs.readFile(assetPath);
-  res.setHeader("content-type", detectContentType(safeName));
-  res.send(file);
+  const file = await store.readFile(req.params.filename);
+  res.setHeader("content-type", file.contentType);
+  res.send(file.buffer);
 }));
 
 app.post("/mcp", async (req: Request, res: Response) => {
@@ -314,7 +377,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: unknown) => {
     createErrorResponse(res, 413, "PAYLOAD_TOO_LARGE", message);
     return;
   }
-  if (/invalid filename|invalid base64/i.test(message)) {
+  if (/invalid asset path|invalid base64|generated asset catalog|qps assets root/i.test(message)) {
     createErrorResponse(res, 400, "BAD_REQUEST", message);
     return;
   }

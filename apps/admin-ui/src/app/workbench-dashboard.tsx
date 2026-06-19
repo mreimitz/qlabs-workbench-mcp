@@ -139,13 +139,7 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
   const [lastRunOutput, setLastRunOutput] = useState("");
   const [selectedRunId, setSelectedRunId] = useState(props.initialData.dashboard.runs[0]?.id ?? "");
   const [assetKeywordFilter, setAssetKeywordFilter] = useState("");
-  const [assetKeywords, setAssetKeywords] = useState("");
-  const [assetTagDrafts, setAssetTagDrafts] = useState<Record<string, string>>({});
-  const [assetViewMode, setAssetViewMode] = useState<"qps" | "uploaded">(
-    props.initialData.dashboard.servers.some((server) => server.server.name === "mcp-qps-toolkit" && server.enabled)
-      ? "qps"
-      : "uploaded",
-  );
+  const [assetUploadTags, setAssetUploadTags] = useState<string[]>([]);
 
   const flashVariant =
     flash && /failed|error/i.test(flash)
@@ -252,15 +246,12 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
     if (!filter) return assets;
     return assets.filter(
       (asset) =>
-        asset.filename.toLowerCase().includes(filter) ||
-        asset.keywords.some((keyword) => keyword.toLowerCase().includes(filter)),
+        asset.path.toLowerCase().includes(filter) ||
+        asset.title.toLowerCase().includes(filter) ||
+        asset.kind.toLowerCase().includes(filter) ||
+        (asset.tags ?? asset.keywords ?? []).some((keyword) => keyword.toLowerCase().includes(filter)),
     );
   }, [assetKeywordFilter, dashboardData.assets.assets]);
-
-  const qpsToolkitServer = useMemo(
-    () => dashboardData.dashboard.servers.find((server) => server.server.name === "mcp-qps-toolkit") ?? null,
-    [dashboardData.dashboard.servers],
-  );
 
   const endpointRows = useMemo(() => {
     const entries = { ...staticEndpointMap } satisfies Record<string, string>;
@@ -486,89 +477,98 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
     }
   };
 
-  const uploadAsset = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const uploadAsset = async (
+    assetPath: string,
+    file: File,
+    metadata: { tags: string[] },
+  ) => {
     setBusy(true);
     setFlash(null);
 
     try {
       const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
-      const keywords = assetKeywords
-        .split(",")
-        .map((entry) => entry.trim().toLowerCase())
-        .filter(Boolean);
 
       const response = await fetch("/api/assets", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          filename: file.name,
+          path: assetPath,
           contentBase64,
-          keywords,
+          metadata,
         }),
       });
       await expectJsonPayload<{ error?: string; asset?: AssetRecord }>(
         response,
         "Failed to upload asset",
       );
-      setAssetKeywords("");
+      setAssetUploadTags([]);
       await refreshDashboard();
-      setFlash(`Added asset: ${file.name}`);
+      setFlash(`Added asset: ${assetPath}`);
     } catch (error) {
       setFlash(error instanceof Error ? error.message : "Failed to upload asset");
     } finally {
-      event.target.value = "";
       setBusy(false);
     }
   };
 
-  const addAssetTags = async (filename: string) => {
-    const keywords = (assetTagDrafts[filename] ?? "")
-      .split(",")
-      .map((entry) => entry.trim().toLowerCase())
-      .filter(Boolean);
-    if (keywords.length === 0) return;
-
+  const updateAssetMetadata = async (
+    assetPath: string,
+    metadata: { title?: string; kind?: string; tags?: string[] },
+  ) => {
     setBusy(true);
     setFlash(null);
 
     try {
-      const response = await fetch(`/api/assets/${encodeURIComponent(filename)}/tags`, {
-        method: "POST",
+      const response = await fetch(`/api/assets/meta?path=${encodeURIComponent(assetPath)}`, {
+        method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keywords }),
+        body: JSON.stringify({ metadata }),
       });
-      await assertJsonOk(response, "Failed to tag asset");
-      setAssetTagDrafts((current) => ({ ...current, [filename]: "" }));
+      await assertJsonOk(response, "Failed to update asset metadata");
       await refreshDashboard();
-      setFlash(`Tagged asset: ${filename}`);
+      setFlash(`Updated asset: ${assetPath}`);
     } catch (error) {
-      setFlash(error instanceof Error ? error.message : "Failed to tag asset");
+      setFlash(error instanceof Error ? error.message : "Failed to update asset metadata");
     } finally {
       setBusy(false);
     }
   };
 
-  const deleteAsset = async (filename: string) => {
+  const deleteAsset = async (assetPath: string) => {
     setBusy(true);
     setFlash(null);
 
     try {
-      const response = await fetch(`/api/assets/${encodeURIComponent(filename)}`, {
+      const response = await fetch(`/api/assets?path=${encodeURIComponent(assetPath)}`, {
         method: "DELETE",
       });
       await assertJsonOk(response, "Failed to delete asset");
-      setAssetTagDrafts((current) => {
-        const next = { ...current };
-        delete next[filename];
-        return next;
-      });
       await refreshDashboard();
-      setFlash(`Deleted asset: ${filename}`);
+      setFlash(`Deleted asset: ${assetPath}`);
     } catch (error) {
       setFlash(error instanceof Error ? error.message : "Failed to delete asset");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importQpsAssets = async () => {
+    setBusy(true);
+    setFlash(null);
+
+    try {
+      const response = await fetch("/api/assets/import/qps", { method: "POST" });
+      const payload = await expectJsonPayload<{
+        imported?: number;
+        skipped?: number;
+        total?: number;
+      }>(response, "Failed to import QPS assets");
+      await refreshDashboard();
+      setFlash(
+        `Imported ${payload.imported ?? 0} QPS assets; skipped ${payload.skipped ?? 0} existing assets.`,
+      );
+    } catch (error) {
+      setFlash(error instanceof Error ? error.message : "Failed to import QPS assets");
     } finally {
       setBusy(false);
     }
@@ -581,23 +581,17 @@ export function WorkbenchDashboard(props: { initialData: DashboardPayload }) {
 
   return (
     <AssetsWorkspaceProvider
-      active={activeView === "assets"}
+      allAssets={dashboardData.assets.assets}
       assetKeywordFilter={assetKeywordFilter}
-      assetKeywords={assetKeywords}
-      assetTagDrafts={assetTagDrafts}
-      assetViewMode={assetViewMode}
+      assetUploadTags={assetUploadTags}
       busy={busy}
       filteredAssets={filteredAssets}
-      onAddAssetTags={addAssetTags}
       onAssetKeywordFilterChange={setAssetKeywordFilter}
-      onAssetKeywordsChange={setAssetKeywords}
-      onAssetTagDraftChange={(filename, value) =>
-        setAssetTagDrafts((current) => ({ ...current, [filename]: value }))
-      }
-      onAssetViewModeChange={setAssetViewMode}
+      onAssetUploadTagsChange={setAssetUploadTags}
       onDeleteAsset={deleteAsset}
+      onImportQpsAssets={importQpsAssets}
+      onUpdateAssetMetadata={updateAssetMetadata}
       onUploadAsset={uploadAsset}
-      qpsToolkitServer={qpsToolkitServer}
       totalAssets={dashboardData.assets.assets.length}
     >
       <WorkbenchShell

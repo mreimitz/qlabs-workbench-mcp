@@ -5,13 +5,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import * as z from "zod/v4";
 import { parse as parseYaml } from "yaml";
+import { createQpsAssetResolver } from "./asset-resolver.js";
 
 const port = Number.parseInt(process.env.PORT ?? "7050", 10);
 const qpsPluginRoot = process.env.QPS_TOOLKIT_PLUGIN_ROOT ?? "/qps-toolkit/plugin";
 const qpsToolkitWriteMode = process.env.QPS_TOOLKIT_WRITE_MODE === "metadata" ? "metadata" : "read-only";
 
 const sharedRoot = path.posix.join(qpsPluginRoot, "shared");
-const assetsRoot = path.posix.join(sharedRoot, "assets");
+const toolkitAssetsRoot = path.posix.join(sharedRoot, "assets");
+const assetsRoot = process.env.MANAGED_ASSETS_ROOT ?? process.env.ASSETS_ROOT ?? toolkitAssetsRoot;
 const scriptsRoot = path.posix.join(sharedRoot, "scripts");
 const policiesRoot = path.posix.join(sharedRoot, "policies");
 const tokensRoot = path.posix.join(sharedRoot, "tokens");
@@ -50,11 +52,14 @@ const requiredPaths = [
   ...Object.values(POLICY_PATHS),
 ];
 
+const assetResolver = createQpsAssetResolver({ assetsRoot, qpsPluginRoot });
+
 
 type RoutesFile = { routes?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>;
 
 type IconCatalogEntry = {
   category: string;
+  path?: string;
   slug: string;
   tags?: string[];
   source_file?: string;
@@ -90,14 +95,21 @@ type ArtManifest = {
 };
 
 let routesMemo: Array<Record<string, unknown>> | null = null;
-let iconsPackMemo: IconsPack | null = null;
-let productsPackMemo: ProductsPack | null = null;
-let artManifestMemo: ArtManifest | null = null;
+type JsonMemo<T> = { mtimeMs: number; value: T };
+
+let iconsPackMemo: JsonMemo<IconsPack> | null = null;
+let productsPackMemo: JsonMemo<ProductsPack> | null = null;
+let artManifestMemo: JsonMemo<ArtManifest> | null = null;
 let canonMemo: Record<string, any> | null = null;
 let tokensMemo: Record<string, any> | null = null;
 const policyMemo = new Map<string, { path: string; text: string }>();
 
 const readJson = async <T,>(p: string): Promise<T> => JSON.parse(await fs.readFile(p, "utf8")) as T;
+const readJsonMemo = async <T,>(p: string, memo: JsonMemo<T> | null): Promise<JsonMemo<T>> => {
+  const stat = await fs.stat(p);
+  if (memo && memo.mtimeMs === stat.mtimeMs) return memo;
+  return { mtimeMs: stat.mtimeMs, value: await readJson<T>(p) };
+};
 const writeJson = async (p: string, value: unknown) => {
   const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -128,6 +140,8 @@ const getConfigurationStatus = async () => {
     ok: true,
     configured,
     qpsPluginRoot,
+    toolkitAssetsRoot,
+    assetsRoot,
     writeMode: qpsToolkitWriteMode,
     note: configured
       ? "Toolkit content is available."
@@ -171,24 +185,21 @@ const loadRoutes = async () => {
 };
 
 const loadIconsPack = async () => {
-  if (iconsPackMemo) return iconsPackMemo;
   await ensureConfigured();
-  iconsPackMemo = await readJson<IconsPack>(path.posix.join(assetsRoot, "icons.pack.json"));
-  return iconsPackMemo;
+  iconsPackMemo = await readJsonMemo<IconsPack>(path.posix.join(assetsRoot, "icons.pack.json"), iconsPackMemo);
+  return iconsPackMemo.value;
 };
 
 const loadProductsPack = async () => {
-  if (productsPackMemo) return productsPackMemo;
   await ensureConfigured();
-  productsPackMemo = await readJson<ProductsPack>(path.posix.join(assetsRoot, "products.pack.json"));
-  return productsPackMemo;
+  productsPackMemo = await readJsonMemo<ProductsPack>(path.posix.join(assetsRoot, "products.pack.json"), productsPackMemo);
+  return productsPackMemo.value;
 };
 
 const loadArtManifest = async () => {
-  if (artManifestMemo) return artManifestMemo;
   await ensureConfigured();
-  artManifestMemo = await readJson<ArtManifest>(path.posix.join(assetsRoot, "art", "manifest.json"));
-  return artManifestMemo;
+  artManifestMemo = await readJsonMemo<ArtManifest>(path.posix.join(assetsRoot, "art", "manifest.json"), artManifestMemo);
+  return artManifestMemo.value;
 };
 
 const loadCanon = async () => {
@@ -338,7 +349,10 @@ const scoreIcon = (entry: IconCatalogEntry, queryTokens: Set<string>) => {
   return { score, reasons };
 };
 
-const iconAbsPath = (category: string, slug: string) => path.posix.join(assetsRoot, "icons", category, `${slug}.svg`);
+const iconManagedPath = (entry: IconCatalogEntry) =>
+  entry.path ?? path.posix.join("icons", entry.category, `${entry.slug}.svg`);
+
+const iconAbsPath = (entry: IconCatalogEntry) => path.posix.join(assetsRoot, iconManagedPath(entry));
 
 const resolveIcon = async (query: string) => {
   const pack = await loadIconsPack();
@@ -362,8 +376,9 @@ const resolveIcon = async (query: string) => {
     return icons[0];
   })();
 
-  const relPath = `framework/assets/icons/${pick.category}/${pick.slug}.svg`;
-  const absPath = iconAbsPath(pick.category, pick.slug);
+  const managedPath = iconManagedPath(pick);
+  const relPath = `framework/assets/${managedPath}`;
+  const absPath = iconAbsPath(pick);
   const ok = await fs
     .access(absPath)
     .then(() => true)
@@ -547,9 +562,12 @@ const pickHero = async (copy: string, preferredType?: string | null) => {
     };
   }
 
+  const managedProductRel = winner.path.replace(/^(\.\.\/)+shared\/assets\/products\//, "products/");
   const absCandidate = path.posix.isAbsolute(winner.path)
     ? winner.path
-    : path.posix.join(qpsPluginRoot, winner.path.replace(/^(\.\.\/)+/, ""));
+    : managedProductRel !== winner.path
+      ? path.posix.join(assetsRoot, managedProductRel)
+      : path.posix.join(qpsPluginRoot, winner.path.replace(/^(\.\.\/)+/, ""));
   const absOk = await fs
     .access(absCandidate)
     .then(() => true)
@@ -1269,7 +1287,7 @@ const getServer = () => {
       inputSchema: { kind: z.enum(["icon", "hero", "product", "brand-art"]), query: z.string(), slot: z.string().optional() },
     },
     async (args: { kind: "icon" | "hero" | "product" | "brand-art"; query: string; slot?: string }) => {
-      const res = await resolveAsset(args.kind, args.query, args.slot ?? null);
+      const res = await assetResolver.resolveAsset(args.kind, args.query, args.slot ?? null);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
   );
@@ -1281,7 +1299,7 @@ const getServer = () => {
       inputSchema: { copy: z.string(), preferred_type: z.string().optional() },
     },
     async (args: { copy: string; preferred_type?: string }) => {
-      const res = await pickHero(args.copy, args.preferred_type ?? null);
+      const res = await assetResolver.pickHero(args.copy, args.preferred_type ?? null);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
   );
@@ -1293,7 +1311,7 @@ const getServer = () => {
       inputSchema: { query: z.string(), surface: z.enum(["light", "dark"]).optional(), color: z.string().optional(), size: z.number().int().min(8).max(512).optional(), classes: z.string().optional() },
     },
     async (args: { query: string; surface?: "light" | "dark"; color?: string; size?: number; classes?: string }) => {
-      const svg = await inlineIcon(args.query, args.surface ?? "light", args.color ?? null, args.size ?? 48, args.classes ?? null);
+      const svg = await assetResolver.inlineIcon(args.query, args.surface ?? "light", args.color ?? null, args.size ?? 48, args.classes ?? null);
       return { content: [{ type: "text", text: svg ?? "" }] };
     }
   );
@@ -1334,7 +1352,7 @@ const getServer = () => {
       },
     },
     async (args: { nodes: Array<{ label: string; role?: string }>; threshold?: number; threshold_mode?: "confidence" | "score"; runners_up?: number }) => {
-      const res = await pickDiagramIcons(args.nodes, args.threshold ?? 0.5, args.threshold_mode ?? "confidence", args.runners_up ?? 0);
+      const res = await assetResolver.pickDiagramIcons(args.nodes, args.threshold ?? 0.5, args.threshold_mode ?? "confidence", args.runners_up ?? 0);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
   );
@@ -1394,7 +1412,7 @@ const getServer = () => {
       inputSchema: { kind: z.enum(["icon", "hero", "product", "brand-art"]), query: z.string(), slot: z.string().optional() },
     },
     async (args: { kind: "icon" | "hero" | "product" | "brand-art"; query: string; slot?: string }) => {
-      const res = await resolveAsset(args.kind, args.query, args.slot ?? null);
+      const res = await assetResolver.resolveAsset(args.kind, args.query, args.slot ?? null);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
   );
@@ -1406,7 +1424,7 @@ const getServer = () => {
       inputSchema: { copy: z.string(), preferred_type: z.string().optional() },
     },
     async (args: { copy: string; preferred_type?: string }) => {
-      const res = await pickHero(args.copy, args.preferred_type ?? null);
+      const res = await assetResolver.pickHero(args.copy, args.preferred_type ?? null);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
   );
@@ -1442,7 +1460,7 @@ const getServer = () => {
       inputSchema: { query: z.string(), surface: z.enum(["light", "dark"]).optional(), color: z.string().optional(), size: z.number().int().min(8).max(512).optional(), classes: z.string().optional() },
     },
     async (args: { query: string; surface?: "light" | "dark"; color?: string; size?: number; classes?: string }) => {
-      const svg = await inlineIcon(args.query, args.surface ?? "light", args.color ?? null, args.size ?? 48, args.classes ?? null);
+      const svg = await assetResolver.inlineIcon(args.query, args.surface ?? "light", args.color ?? null, args.size ?? 48, args.classes ?? null);
       return { content: [{ type: "text", text: svg ?? "" }] };
     }
   );
@@ -1459,7 +1477,7 @@ const getServer = () => {
       },
     },
     async (args: { nodes: Array<{ label: string; role?: string }>; threshold?: number; threshold_mode?: "confidence" | "score"; runners_up?: number }) => {
-      const res = await pickDiagramIcons(args.nodes, args.threshold ?? 0.5, args.threshold_mode ?? "confidence", args.runners_up ?? 0);
+      const res = await assetResolver.pickDiagramIcons(args.nodes, args.threshold ?? 0.5, args.threshold_mode ?? "confidence", args.runners_up ?? 0);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
   );

@@ -87,12 +87,19 @@ services:
     environment:
       PORT: 7040
       ASSETS_ROOT: ${ASSETS_ROOT}
+      QPS_ASSETS_ROOT: /qps-toolkit/plugin/shared/assets
+      IMPORT_QPS_ASSETS_ON_START: ${IMPORT_QPS_ASSETS_ON_START:-false}
       SEED_DEMO_CONTENT: ${SEED_DEMO_CONTENT}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
     ports:
       - "${MCP_ASSETS_PORT}:7040"
     volumes:
       - assets-data:${ASSETS_ROOT}
+      - type: bind
+        source: ${QPS_TOOLKIT_ROOT:-./local/qps-toolkit}
+        target: /qps-toolkit
+        bind:
+          create_host_path: true
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7040/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -147,10 +154,14 @@ services:
     environment:
       PORT: 7050
       QPS_TOOLKIT_PLUGIN_ROOT: /qps-toolkit/plugin
+      MANAGED_ASSETS_ROOT: ${ASSETS_ROOT}
       QPS_TOOLKIT_WRITE_MODE: ${QPS_TOOLKIT_WRITE_MODE:-read-only}
     ports:
       - "${MCP_QPS_TOOLKIT_PORT}:7050"
+    depends_on:
+      - mcp-assets
     volumes:
+      - assets-data:${ASSETS_ROOT}
       - type: bind
         source: ${QPS_TOOLKIT_ROOT:-./local/qps-toolkit}
         target: /qps-toolkit

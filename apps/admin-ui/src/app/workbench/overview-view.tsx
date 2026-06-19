@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   ColumnPicker,
   DataTable,
@@ -8,7 +8,7 @@ import {
   SearchInput,
   type ColumnDef,
 } from "@brand/data";
-import { Button, Label, StatusBadge } from "@brand/ui";
+import { BentoGrid, BentoGridItem, Button, Label, StatusBadge } from "@brand/ui";
 import {
   AlertTriangle,
   Copy,
@@ -16,13 +16,12 @@ import {
   ExternalLink,
   FolderTree,
   Server,
+  type LucideIcon,
 } from "lucide-react";
 import {
   CompactBadge,
   EnterpriseHeader,
   EnterprisePage,
-  MetricPill,
-  MetricStrip,
   Panel,
 } from "./enterprise";
 import { formatDateTime, prettyJson } from "./format";
@@ -180,8 +179,8 @@ export function OverviewView(props: {
       />
 
       <section id="overview-health" className="scroll-mt-4">
-        <MetricStrip>
-          <MetricPill
+        <BentoGrid className="auto-rows-[10rem]">
+          <OverviewKpiTile
             icon={Server}
             label="Healthy servers"
             value={`${props.payload.dashboard.summary.healthyServers}/${props.payload.dashboard.summary.enabledServers}`}
@@ -193,20 +192,20 @@ export function OverviewView(props: {
                 : "warning"
             }
           />
-          <MetricPill
+          <OverviewKpiTile
             icon={Database}
             label="Storage root"
             value={props.payload.storageHealth.ok ? "Healthy" : "Attention"}
             description={props.payload.storageHealth.storageRoot}
             tone={props.payload.storageHealth.ok ? "success" : "danger"}
           />
-          <MetricPill
+          <OverviewKpiTile
             icon={FolderTree}
             label="Current folder"
             value={props.payload.rootBrowse.path || "/"}
             description={`${props.rootStats.folders} folders / ${props.rootStats.files} files`}
           />
-          <MetricPill
+          <OverviewKpiTile
             icon={AlertTriangle}
             label="Attention"
             value={props.payload.dashboard.diagnostics.attentionCount}
@@ -217,7 +216,7 @@ export function OverviewView(props: {
                 : "success"
             }
           />
-        </MetricStrip>
+        </BentoGrid>
       </section>
 
       <section
@@ -320,6 +319,49 @@ export function OverviewView(props: {
         />
       </Panel>
     </EnterprisePage>
+  );
+}
+
+function OverviewKpiTile(props: {
+  description?: ReactNode;
+  icon: LucideIcon;
+  label: string;
+  tone?: "default" | "success" | "warning" | "danger";
+  value: ReactNode;
+}) {
+  const Icon = props.icon;
+  const toneClass =
+    props.tone === "success"
+      ? "bg-success/10 text-success"
+      : props.tone === "warning"
+        ? "bg-warning/10 text-warning"
+        : props.tone === "danger"
+          ? "bg-destructive/10 text-destructive"
+          : "bg-surface-muted text-muted-foreground";
+
+  return (
+    <BentoGridItem size="sm" spotlight>
+      <div className="flex h-full min-w-0 flex-col justify-between p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium uppercase text-muted-foreground">
+              {props.label}
+            </div>
+            <div className="mt-2 truncate text-2xl font-semibold text-foreground">
+              {props.value}
+            </div>
+          </div>
+          <div className={`rounded-md p-2 ${toneClass}`}>
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </div>
+        </div>
+        {props.description ? (
+          <div className="min-w-0 truncate text-xs text-muted-foreground">
+            {props.description}
+          </div>
+        ) : null}
+      </div>
+    </BentoGridItem>
   );
 }
 

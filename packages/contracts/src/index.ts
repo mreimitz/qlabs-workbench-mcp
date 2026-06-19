@@ -63,15 +63,26 @@ export const storageWriteFileRequestSchema = z.object({
 });
 
 export const assetRecordSchema = z.object({
+  path: z.string(),
   filename: z.string(),
-  keywords: z.array(z.string()),
+  title: z.string(),
+  kind: z.string(),
+  tags: z.array(z.string()),
+  keywords: z.array(z.string()).optional(),
+  mime: z.string(),
+  source: z.string(),
+  sourcePath: z.string().optional(),
+  size: z.number(),
+  mtimeMs: z.number(),
   url: z.string(),
 });
 
 export const assetAddRequestSchema = z.object({
-  filename: z.string().min(1),
+  path: z.string().min(1).optional(),
+  filename: z.string().min(1).optional(),
   keywords: z.array(z.string()).optional(),
   keyword: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   contentBase64: z.string().min(1),
 });
 

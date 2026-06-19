@@ -1,28 +1,49 @@
 "use client";
 
 import Image from "next/image";
-import type {
-  ChangeEvent,
-  Dispatch,
-  ReactNode,
-  RefObject,
-  SetStateAction,
-} from "react";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
   Badge,
   Button,
+  Card,
+  CardContent,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  FileUpload,
+  FileUploadDropzone,
+  FileUploadItem,
+  FileUploadList,
   Input,
   Label,
   ScrollArea,
   StatePanel,
+  TagInput,
   ToggleGroup,
   ToggleGroupItem,
+  Tree,
   cn,
+  type TreeNode,
+  type UploadFile,
 } from "@brand/ui";
 import {
-  ChevronRight,
-  ExternalLink,
+  Download,
+  Eye,
   File,
   Folder,
   Grid2X2,
@@ -31,6 +52,7 @@ import {
   List,
   RefreshCw,
   Save,
+  Search,
   Tag,
   Trash2,
   Upload,
@@ -42,147 +64,76 @@ import {
   EnterprisePage,
   Panel,
 } from "./enterprise";
+import {
+  assetTags,
+  buildAssetFolderTree,
+  folderIdToPath,
+  joinAssetPath,
+  splitAssetTags,
+  type AssetFolderNode,
+} from "./assets-helpers";
 import { formatFileTimestamp } from "./format";
-import type { AssetRecord, ServerStatus } from "./types";
+import type { AssetRecord } from "./types";
 
-type AssetSource = "qps" | "uploaded";
-type BrowseEntry = { name: string; kind: "folder" | "file"; path: string };
-type BrowsePayload = { path: string; entries: BrowseEntry[] };
-type QpsMeta = {
-  ok: boolean;
-  write_mode?: "read-only" | "metadata";
-  kind?: "icon" | "product" | "brand-art" | string;
-  stat?: { size: number; mtimeMs: number };
-  icon?: { tags?: string[] };
-  product?: { tags?: string[] };
-  art?: { tags?: string[] };
+type AssetMetadataPatch = {
+  title?: string;
+  kind?: string;
+  tags?: string[];
 };
 
-const isImageFile = (filename: string) =>
-  /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
-
-const responseExcerpt = (text: string) =>
-  text.replace(/\s+/g, " ").trim().slice(0, 140);
-
-const readJsonResponse = async <T,>(
-  response: Response,
-  fallbackMessage: string,
-) => {
-  const text = await response.text();
-  if (!text) {
-    if (!response.ok) throw new Error(`${fallbackMessage} (${response.status})`);
-    return {} as T & { error?: string };
-  }
-
-  try {
-    return JSON.parse(text) as T & { error?: string };
-  } catch {
-    const excerpt = responseExcerpt(text);
-    const suffix = excerpt ? `: ${excerpt}` : "";
-    throw new Error(`${fallbackMessage} (${response.status})${suffix}`);
-  }
+type MetadataDraft = {
+  title: string;
+  kind: string;
+  tags: string[];
 };
 
-const expectJsonResponse = async <T,>(
-  response: Response,
-  fallbackMessage: string,
-) => {
-  const payload = await readJsonResponse<T>(response, fallbackMessage);
-  if (!response.ok) {
-    throw new Error(payload.error ?? `${fallbackMessage} (${response.status})`);
-  }
-  return payload;
-};
-
-const fetchBrowse = async (targetPath: string) => {
-  const response = await fetch(
-    `/api/qps-assets/browse?path=${encodeURIComponent(targetPath)}`,
-    { cache: "no-store" },
-  );
-  return expectJsonResponse<BrowsePayload>(response, "Browse failed");
-};
-
-const fetchMeta = async (targetPath: string) => {
-  const response = await fetch(
-    `/api/qps-assets/meta?path=${encodeURIComponent(targetPath)}`,
-    { cache: "no-store" },
-  );
-  const payload = await expectJsonResponse<QpsMeta>(response, "Meta failed");
-  if (!payload.ok) throw new Error(payload.error ?? "Meta failed");
-  return payload;
-};
-
-const saveMeta = async (targetPath: string, patch: unknown) => {
-  const response = await fetch(
-    `/api/qps-assets/meta?path=${encodeURIComponent(targetPath)}`,
-    {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch),
-    },
-  );
-  const payload = await expectJsonResponse<QpsMeta>(response, "Save failed");
-  if (!payload.ok) throw new Error(payload.error ?? "Save failed");
-  return payload;
-};
-
-const normTag = (value: string) => value.trim().toLowerCase();
+const isImageAsset = (asset: AssetRecord) =>
+  asset.mime?.startsWith("image/") || /\.(png|jpe?g|gif|webp|svg)$/i.test(asset.path);
 
 export type AssetsWorkspaceProps = {
+  allAssets: AssetRecord[];
   assetKeywordFilter: string;
-  assetKeywords: string;
-  assetTagDrafts: Record<string, string>;
-  assetViewMode: AssetSource;
+  assetUploadTags: string[];
   busy: boolean;
   filteredAssets: AssetRecord[];
-  onAddAssetTags: (filename: string) => void;
   onAssetKeywordFilterChange: (value: string) => void;
-  onAssetKeywordsChange: (value: string) => void;
-  onAssetTagDraftChange: (filename: string, value: string) => void;
-  onAssetViewModeChange: (value: AssetSource) => void;
-  onDeleteAsset: (filename: string) => void;
-  onUploadAsset: (event: ChangeEvent<HTMLInputElement>) => void;
-  qpsToolkitServer: ServerStatus | null;
+  onAssetUploadTagsChange: (value: string[]) => void;
+  onDeleteAsset: (path: string) => Promise<void>;
+  onImportQpsAssets: () => Promise<void>;
+  onUpdateAssetMetadata: (path: string, metadata: AssetMetadataPatch) => Promise<void>;
+  onUploadAsset: (
+    path: string,
+    file: File,
+    metadata: { tags: string[] },
+  ) => Promise<void>;
   totalAssets: number;
 };
 
 type AssetsWorkspaceProviderProps = AssetsWorkspaceProps & {
-  active: boolean;
   children: ReactNode;
 };
 
 type AssetsWorkspaceContextValue = AssetsWorkspaceProps & {
-  deleteSelectedUploadedAsset: () => void;
-  loadQpsPath: (path: string) => Promise<void>;
-  qpsBrowseByPath: Record<string, BrowsePayload>;
-  qpsBusy: boolean;
-  qpsEnabled: boolean;
-  qpsError: string | null;
-  qpsExpanded: Record<string, boolean>;
-  qpsGalleryEntries: BrowseEntry[];
-  qpsMeta: QpsMeta | null;
-  qpsSelectedAsset: string | null;
-  qpsSelectedFolder: string;
-  qpsTagsDraft: string;
-  saveQpsTags: () => Promise<void>;
-  selectedQpsEntry: BrowseEntry | null;
-  selectedName?: string;
-  selectedUploadedAsset: AssetRecord | null;
-  selectedUploadedFilename: string | null;
-  setQpsExpanded: Dispatch<SetStateAction<Record<string, boolean>>>;
-  setQpsSelectedAsset: (path: string | null) => void;
-  setQpsSelectedFolder: (path: string) => void;
-  setQpsTagsDraft: (value: string) => void;
-  setSelectedUploadedFilename: (filename: string | null) => void;
+  currentFolder: string;
+  deleteSelectedAsset: () => Promise<void>;
+  folderTree: TreeNode<{ path: string }>[];
+  folderTreeExpandedIds: string[];
+  galleryAssets: AssetRecord[];
+  metadataDraft: MetadataDraft;
+  onUploadFilesChange: (files: UploadFile[]) => void;
+  saveSelectedMetadata: () => Promise<void>;
+  selectedAsset: AssetRecord | null;
+  selectedAssetPath: string | null;
+  setCurrentFolder: (path: string) => void;
+  setFolderTreeExpandedIds: (ids: string[]) => void;
+  setMetadataDraft: (draft: MetadataDraft) => void;
+  setSelectedAssetPath: (path: string | null) => void;
   setViewMode: (mode: "grid" | "list") => void;
-  uploadedKeywords: string[];
-  uploadInputRef: RefObject<HTMLInputElement>;
+  uploadFiles: UploadFile[];
   viewMode: "grid" | "list";
 };
 
-const AssetsWorkspaceContext = createContext<AssetsWorkspaceContextValue | null>(
-  null,
-);
+const AssetsWorkspaceContext = createContext<AssetsWorkspaceContextValue | null>(null);
 
 const useAssetsWorkspace = () => {
   const context = useContext(AssetsWorkspaceContext);
@@ -192,186 +143,131 @@ const useAssetsWorkspace = () => {
   return context;
 };
 
+const decorateFolderTree = (nodes: AssetFolderNode[]): TreeNode<{ path: string }>[] =>
+  nodes.map((node) => ({
+    id: node.id,
+    label: node.label,
+    icon: <Folder className="size-4 text-muted-foreground" aria-hidden="true" />,
+    data: { path: folderIdToPath(node.id) },
+    children: node.children ? decorateFolderTree(node.children) : undefined,
+  }));
+
+const collectFolderIds = (nodes: TreeNode<{ path: string }>[]) => {
+  const ids: string[] = [];
+  const visit = (node: TreeNode<{ path: string }>) => {
+    ids.push(node.id);
+    node.children?.forEach(visit);
+  };
+  nodes.forEach(visit);
+  return ids;
+};
+
 export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
-  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [qpsBusy, setQpsBusy] = useState(false);
-  const [qpsError, setQpsError] = useState<string | null>(null);
-  const [qpsExpanded, setQpsExpanded] = useState<Record<string, boolean>>({
-    "": true,
+  const [currentFolder, setCurrentFolder] = useState("");
+  const [folderTreeExpandedIds, setFolderTreeExpandedIds] = useState<string[]>(["/"]);
+  const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
+  const [selectedAssetPath, setSelectedAssetPath] = useState<string | null>(
+    props.filteredAssets[0]?.path ?? null,
+  );
+  const [metadataDraft, setMetadataDraft] = useState<MetadataDraft>({
+    title: "",
+    kind: "",
+    tags: [],
   });
-  const [qpsBrowseByPath, setQpsBrowseByPath] = useState<
-    Record<string, BrowsePayload>
-  >({});
-  const [qpsSelectedFolder, setQpsSelectedFolder] = useState("");
-  const [qpsSelectedAsset, setQpsSelectedAsset] = useState<string | null>(null);
-  const [qpsMeta, setQpsMeta] = useState<QpsMeta | null>(null);
-  const [qpsTagsDraft, setQpsTagsDraft] = useState("");
-  const [selectedUploadedFilename, setSelectedUploadedFilename] = useState<
-    string | null
-  >(props.filteredAssets[0]?.filename ?? null);
 
-  const qpsEnabled = Boolean(
-    props.qpsToolkitServer?.enabled && props.qpsToolkitServer?.configured,
+  const folderTree = useMemo(
+    () => decorateFolderTree(buildAssetFolderTree(props.allAssets)),
+    [props.allAssets],
   );
-
-  const loadQpsPath = async (path: string) => {
-    setQpsBusy(true);
-    setQpsError(null);
-    try {
-      const payload = await fetchBrowse(path);
-      setQpsBrowseByPath((current) => ({ ...current, [path]: payload }));
-    } catch (error) {
-      setQpsError(error instanceof Error ? error.message : "Failed to browse");
-    } finally {
-      setQpsBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!props.active || !qpsEnabled) return;
-    void loadQpsPath(qpsSelectedFolder);
-  }, [props.active, qpsEnabled, qpsSelectedFolder]);
-
-  const qpsGalleryEntries = useMemo(() => {
-    const query = props.assetKeywordFilter.trim().toLowerCase();
-    return (qpsBrowseByPath[qpsSelectedFolder]?.entries ?? [])
-      .filter((entry) => entry.kind === "file")
-      .filter((entry) =>
-        query ? `${entry.name} ${entry.path}`.toLowerCase().includes(query) : true,
-      )
-      .sort((left, right) => left.name.localeCompare(right.name));
-  }, [props.assetKeywordFilter, qpsBrowseByPath, qpsSelectedFolder]);
-
-  useEffect(() => {
-    if (
-      qpsSelectedAsset &&
-      qpsGalleryEntries.some((entry) => entry.path === qpsSelectedAsset)
-    ) {
-      return;
-    }
-    setQpsSelectedAsset(qpsGalleryEntries[0]?.path ?? null);
-  }, [qpsGalleryEntries, qpsSelectedAsset]);
-
-  useEffect(() => {
-    if (
-      selectedUploadedFilename &&
-      props.filteredAssets.some(
-        (asset) => asset.filename === selectedUploadedFilename,
-      )
-    ) {
-      return;
-    }
-    setSelectedUploadedFilename(props.filteredAssets[0]?.filename ?? null);
-  }, [props.filteredAssets, selectedUploadedFilename]);
-
-  useEffect(() => {
-    if (!qpsSelectedAsset || !qpsEnabled) {
-      setQpsMeta(null);
-      setQpsTagsDraft("");
-      return;
-    }
-
-    setQpsBusy(true);
-    setQpsError(null);
-    setQpsMeta(null);
-    fetchMeta(qpsSelectedAsset)
-      .then((payload) => {
-        setQpsMeta(payload);
-        const tags =
-          payload.kind === "icon"
-            ? payload.icon?.tags ?? []
-            : payload.kind === "product"
-              ? payload.product?.tags ?? []
-              : payload.kind === "brand-art"
-                ? payload.art?.tags ?? []
-                : [];
-        setQpsTagsDraft(tags.join(", "));
-      })
-      .catch((error) =>
-        setQpsError(
-          error instanceof Error ? error.message : "Failed to load metadata",
-        ),
-      )
-      .finally(() => setQpsBusy(false));
-  }, [qpsEnabled, qpsSelectedAsset]);
-
-  const selectedQpsEntry =
-    qpsGalleryEntries.find((entry) => entry.path === qpsSelectedAsset) ?? null;
-  const selectedUploadedAsset =
-    props.filteredAssets.find(
-      (asset) => asset.filename === selectedUploadedFilename,
-    ) ?? null;
-  const selectedName =
-    props.assetViewMode === "qps" ? selectedQpsEntry?.name : selectedUploadedAsset?.filename;
-
-  const uploadedKeywords = useMemo(
+  const folderIds = useMemo(() => collectFolderIds(folderTree), [folderTree]);
+  const galleryAssets = useMemo(
     () =>
-      Array.from(
-        new Set(props.filteredAssets.flatMap((asset) => asset.keywords)),
-      ).sort((left, right) => left.localeCompare(right)),
-    [props.filteredAssets],
+      props.filteredAssets
+        .filter((asset) => {
+          if (!currentFolder) return !asset.path.includes("/");
+          return asset.path.startsWith(`${currentFolder}/`) &&
+            !asset.path.slice(currentFolder.length + 1).includes("/");
+        })
+        .sort((left, right) => left.path.localeCompare(right.path)),
+    [currentFolder, props.filteredAssets],
   );
+  const selectedAsset =
+    props.allAssets.find((asset) => asset.path === selectedAssetPath) ?? null;
 
-  const saveQpsTags = async () => {
-    if (!qpsSelectedAsset || !qpsMeta) return;
-    const tags = qpsTagsDraft
-      .split(",")
-      .map(normTag)
-      .filter(Boolean);
+  useEffect(() => {
+    if (selectedAssetPath && props.allAssets.some((asset) => asset.path === selectedAssetPath)) {
+      return;
+    }
+    setSelectedAssetPath(galleryAssets[0]?.path ?? props.filteredAssets[0]?.path ?? null);
+  }, [galleryAssets, props.allAssets, props.filteredAssets, selectedAssetPath]);
 
-    setQpsBusy(true);
-    setQpsError(null);
+  useEffect(() => {
+    setMetadataDraft({
+      title: selectedAsset?.title ?? "",
+      kind: selectedAsset?.kind ?? "",
+      tags: selectedAsset ? assetTags(selectedAsset) : [],
+    });
+  }, [selectedAsset]);
+
+  useEffect(() => {
+    setFolderTreeExpandedIds((current) =>
+      Array.from(new Set(["/", ...current.filter((id) => folderIds.includes(id))])),
+    );
+  }, [folderIds]);
+
+  const onUploadFilesChange = (files: UploadFile[]) => {
+    setUploadFiles(files);
+    const uploadFile = files.at(-1);
+    if (!uploadFile) return;
     try {
-      await saveMeta(qpsSelectedAsset, { tags });
-      setQpsMeta(await fetchMeta(qpsSelectedAsset));
-    } catch (error) {
-      setQpsError(error instanceof Error ? error.message : "Failed to save tags");
-    } finally {
-      setQpsBusy(false);
+      void props
+        .onUploadAsset(joinAssetPath(currentFolder, uploadFile.file.name), uploadFile.file, {
+          tags: props.assetUploadTags,
+        })
+        .finally(() => setUploadFiles([]));
+    } catch {
+      setUploadFiles([]);
     }
   };
 
-  const deleteSelectedUploadedAsset = () => {
-    if (!selectedUploadedAsset) return;
-    const confirmed = window.confirm(
-      `Delete uploaded asset "${selectedUploadedAsset.filename}"?`,
-    );
-    if (confirmed) props.onDeleteAsset(selectedUploadedAsset.filename);
+  const saveSelectedMetadata = async () => {
+    if (!selectedAsset) return;
+    await props.onUpdateAssetMetadata(selectedAsset.path, {
+      title: metadataDraft.title,
+      kind: metadataDraft.kind,
+      tags: metadataDraft.tags,
+    });
   };
 
-  const value: AssetsWorkspaceContextValue = {
-    ...props,
-    deleteSelectedUploadedAsset,
-    loadQpsPath,
-    qpsBrowseByPath,
-    qpsBusy,
-    qpsEnabled,
-    qpsError,
-    qpsExpanded,
-    qpsGalleryEntries,
-    qpsMeta,
-    qpsSelectedAsset,
-    qpsSelectedFolder,
-    qpsTagsDraft,
-    saveQpsTags,
-    selectedName,
-    selectedQpsEntry,
-    selectedUploadedAsset,
-    selectedUploadedFilename,
-    setQpsExpanded,
-    setQpsSelectedAsset,
-    setQpsSelectedFolder,
-    setQpsTagsDraft,
-    setSelectedUploadedFilename,
-    setViewMode,
-    uploadedKeywords,
-    uploadInputRef,
-    viewMode,
+  const deleteSelectedAsset = async () => {
+    if (!selectedAsset) return;
+    await props.onDeleteAsset(selectedAsset.path);
   };
 
   return (
-    <AssetsWorkspaceContext.Provider value={value}>
+    <AssetsWorkspaceContext.Provider
+      value={{
+        ...props,
+        currentFolder,
+        deleteSelectedAsset,
+        folderTree,
+        folderTreeExpandedIds,
+        galleryAssets,
+        metadataDraft,
+        onUploadFilesChange,
+        saveSelectedMetadata,
+        selectedAsset,
+        selectedAssetPath,
+        setCurrentFolder,
+        setFolderTreeExpandedIds,
+        setMetadataDraft,
+        setSelectedAssetPath,
+        setViewMode,
+        uploadFiles,
+        viewMode,
+      }}
+    >
       {props.children}
     </AssetsWorkspaceContext.Provider>
   );
@@ -379,154 +275,126 @@ export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
 
 export function AssetsView() {
   const workspace = useAssetsWorkspace();
-  const source = workspace.assetViewMode;
 
   return (
     <EnterprisePage>
       <EnterpriseHeader
-        eyebrow="Documents"
+        eyebrow="Managed library"
         title="Assets"
-        description="Manage QPS toolkit assets and uploaded files from one document-library workspace."
+        description="Manage the canonical asset library used by MCP lookup tools."
         meta={
           <>
-            <CompactBadge
-              variant={workspace.qpsEnabled ? "success" : "warning"}
-            >
-              {workspace.qpsEnabled ? "Toolkit mounted" : "Toolkit unavailable"}
-            </CompactBadge>
-            <CompactBadge variant="secondary">
-              {workspace.totalAssets} uploaded
-            </CompactBadge>
+            <CompactBadge variant="success">ASSETS_ROOT</CompactBadge>
+            <CompactBadge variant="secondary">{workspace.totalAssets} assets</CompactBadge>
           </>
         }
       />
 
       <section id="assets-library" className="scroll-mt-4">
         <Panel
-          title="Document gallery"
-          description="Search, inspect, upload, delete, and tag files in the selected asset source."
+          title="Asset library"
+          description="Upload, inspect, tag, import, and delete managed assets."
           actions={
-            <div className="flex items-center gap-2">
-              <CompactBadge variant="secondary">
-                {source === "qps"
-                  ? `${workspace.qpsGalleryEntries.length} files`
-                  : `${workspace.filteredAssets.length} shown`}
-              </CompactBadge>
-            </div>
+            <CompactBadge variant="secondary">
+              {workspace.galleryAssets.length} shown
+            </CompactBadge>
           }
           className="flex h-[calc(100dvh-11rem)] min-h-[38rem] flex-col"
         >
           <div className="flex min-h-0 flex-1 flex-col">
-              <CommandBar
-                className="gap-2"
-                actions={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline-subtle"
-                      size="sm"
-                      disabled={source !== "uploaded" || workspace.busy}
-                      onClick={() => workspace.uploadInputRef.current?.click()}
-                    >
-                      <Upload className="h-4 w-4" aria-hidden="true" />
-                      Upload
-                    </Button>
-                    <Button
-                      variant="outline-subtle"
-                      size="sm"
-                      disabled={source !== "uploaded" || !workspace.selectedUploadedAsset || workspace.busy}
-                      onClick={workspace.deleteSelectedUploadedAsset}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Delete
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Refresh assets"
-                      onClick={() => {
-                        if (source === "qps") {
-                          void workspace.loadQpsPath(workspace.qpsSelectedFolder);
-                        }
-                      }}
-                      disabled={source === "uploaded" || workspace.qpsBusy}
-                    >
-                      <RefreshCw
-                        className={cn("h-4 w-4", workspace.qpsBusy && "animate-spin")}
-                        aria-hidden="true"
-                      />
-                    </Button>
-                    <ToggleGroup
-                      type="single"
-                      value={workspace.viewMode}
-                      onValueChange={(value) => {
-                        if (value === "grid" || value === "list") {
-                          workspace.setViewMode(value);
-                        }
-                      }}
-                      variant="segmented"
-                      size="sm"
-                    >
-                      <ToggleGroupItem value="grid" aria-label="Grid view">
-                        <Grid2X2 className="h-4 w-4" aria-hidden="true" />
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="list" aria-label="List view">
-                        <List className="h-4 w-4" aria-hidden="true" />
-                      </ToggleGroupItem>
-                    </ToggleGroup>
-                  </div>
-                }
-              >
-                <Input
-                  className="w-72 max-w-full"
-                  placeholder="Search files or tags..."
-                  value={workspace.assetKeywordFilter}
-                  onChange={(event) =>
-                    workspace.onAssetKeywordFilterChange(event.target.value)
-                  }
-                />
-                {source === "uploaded" ? (
-                  <>
+            <CommandBar className="items-start gap-2">
+              <div className="flex w-full min-w-0 flex-col gap-2">
+                <div className="grid w-full min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_16rem]">
+                  <div className="relative min-w-0">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                     <Input
-                      className="w-64 max-w-full"
-                      placeholder="Default upload tags..."
-                      value={workspace.assetKeywords}
+                      className="w-full pl-8"
+                      placeholder="Search paths, titles, or tags..."
+                      value={workspace.assetKeywordFilter}
                       onChange={(event) =>
-                        workspace.onAssetKeywordsChange(event.target.value)
+                        workspace.onAssetKeywordFilterChange(event.target.value)
                       }
                     />
-                    <input
-                      ref={workspace.uploadInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={workspace.onUploadAsset}
-                      disabled={workspace.busy}
+                  </div>
+                  <TagInput
+                    className="w-full"
+                    value={workspace.assetUploadTags}
+                    onValueChange={workspace.onAssetUploadTagsChange}
+                    placeholder="Upload tags..."
+                    aria-label="Upload tags"
+                    disabled={workspace.busy}
+                    validate={(tag) =>
+                      splitAssetTags(tag).length === 1 ? true : "Use one tag at a time."
+                    }
+                  />
+                </div>
+                <FileUpload
+                  files={workspace.uploadFiles}
+                  onFilesChange={workspace.onUploadFilesChange}
+                  maxFiles={1}
+                  disabled={workspace.busy}
+                  className="min-w-0"
+                >
+                  <FileUploadDropzone className="min-h-10 flex-row justify-start gap-2 rounded-md border border-dashed px-3 py-2">
+                    <Upload className="size-4 text-muted-foreground" aria-hidden="true" />
+                    <span className="truncate text-sm font-medium">
+                      Upload to {workspace.currentFolder || "/"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">drop or browse</span>
+                  </FileUploadDropzone>
+                  <FileUploadList>
+                    {workspace.uploadFiles.map((uploadFile) => (
+                      <FileUploadItem
+                        key={uploadFile.id}
+                        uploadFile={uploadFile}
+                        status={workspace.busy ? "uploading" : uploadFile.status}
+                      />
+                    ))}
+                  </FileUploadList>
+                </FileUpload>
+                <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DeleteAssetButton
+                      asset={workspace.selectedAsset}
+                      busy={workspace.busy}
+                      onDelete={() => void workspace.deleteSelectedAsset()}
                     />
-                  </>
-                ) : (
-                  <CompactBadge variant="secondary">
-                    QPS files are read-only except metadata tags
-                  </CompactBadge>
-                )}
-              </CommandBar>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={workspace.busy}
+                      onClick={() => void workspace.onImportQpsAssets()}
+                    >
+                      <RefreshCw className={cn("h-4 w-4", workspace.busy && "animate-spin")} aria-hidden="true" />
+                      Import QPS
+                    </Button>
+                  </div>
+                  <ToggleGroup
+                    type="single"
+                    value={workspace.viewMode}
+                    onValueChange={(value) => {
+                      if (value === "grid" || value === "list") workspace.setViewMode(value);
+                    }}
+                    variant="segmented"
+                    size="sm"
+                  >
+                    <ToggleGroupItem value="grid" aria-label="Grid view">
+                      <Grid2X2 className="h-4 w-4" aria-hidden="true" />
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="list" aria-label="List view">
+                      <List className="h-4 w-4" aria-hidden="true" />
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+              </div>
+            </CommandBar>
 
-              {source === "qps" ? (
-                <QpsContentPane
-                  enabled={workspace.qpsEnabled}
-                  error={workspace.qpsError}
-                  entries={workspace.qpsGalleryEntries}
-                  selectedPath={workspace.qpsSelectedAsset}
-                  viewMode={workspace.viewMode}
-                  onSelect={workspace.setQpsSelectedAsset}
-                  note={workspace.qpsToolkitServer?.note}
-                />
-              ) : (
-                <UploadedContentPane
-                  assets={workspace.filteredAssets}
-                  selectedFilename={workspace.selectedUploadedFilename}
-                  viewMode={workspace.viewMode}
-                  onSelect={workspace.setSelectedUploadedFilename}
-                />
-              )}
+            <ManagedContentPane
+              assets={workspace.galleryAssets}
+              selectedPath={workspace.selectedAssetPath}
+              viewMode={workspace.viewMode}
+              onSelect={workspace.setSelectedAssetPath}
+            />
           </div>
         </Panel>
       </section>
@@ -534,371 +402,73 @@ export function AssetsView() {
   );
 }
 
+function DeleteAssetButton(props: {
+  asset: AssetRecord | null;
+  busy: boolean;
+  onDelete: () => void;
+}) {
+  if (!props.asset) {
+    return (
+      <Button variant="outline-subtle" size="sm" disabled>
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
+        Delete
+      </Button>
+    );
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline-subtle" size="sm" disabled={props.busy}>
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Delete
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete managed asset?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes {props.asset.path} from ASSETS_ROOT and regenerates the MCP-facing
+            catalogs.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={props.onDelete}>Delete</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function AssetsSecondaryNavigation() {
   const workspace = useAssetsWorkspace();
 
   return (
-    <AssetNavigationPane
-      source={workspace.assetViewMode}
-      onSourceChange={workspace.onAssetViewModeChange}
-      qpsEnabled={workspace.qpsEnabled}
-      qpsExpanded={workspace.qpsExpanded}
-      qpsBrowseByPath={workspace.qpsBrowseByPath}
-      qpsSelectedFolder={workspace.qpsSelectedFolder}
-      onQpsFolderSelect={workspace.setQpsSelectedFolder}
-      onQpsFolderToggle={async (folderPath) => {
-        const next = !workspace.qpsExpanded[folderPath];
-        workspace.setQpsExpanded((current) => ({
-          ...current,
-          [folderPath]: next,
-        }));
-        if (next && !workspace.qpsBrowseByPath[folderPath]) {
-          await workspace.loadQpsPath(folderPath);
-        }
-      }}
-      uploadedKeywords={workspace.uploadedKeywords}
-      activeUploadedFilter={workspace.assetKeywordFilter}
-      onUploadedFilterChange={workspace.onAssetKeywordFilterChange}
-    />
-  );
-}
-
-export function AssetsContextPanel() {
-  const workspace = useAssetsWorkspace();
-  const source = workspace.assetViewMode;
-  const selectedUploadedAsset = workspace.selectedUploadedAsset;
-
-  return (
-    <AssetInspector
-      source={source}
-      selectedName={workspace.selectedName}
-      qpsBusy={workspace.qpsBusy}
-      qpsError={workspace.qpsError}
-      qpsEntry={workspace.selectedQpsEntry}
-      qpsMeta={workspace.qpsMeta}
-      qpsTagsDraft={workspace.qpsTagsDraft}
-      onQpsTagsDraftChange={workspace.setQpsTagsDraft}
-      onSaveQpsTags={workspace.saveQpsTags}
-      uploadedAsset={selectedUploadedAsset}
-      uploadedTagDraft={
-        selectedUploadedAsset
-          ? workspace.assetTagDrafts[selectedUploadedAsset.filename] ?? ""
-          : ""
-      }
-      onUploadedTagDraftChange={(value) => {
-        if (selectedUploadedAsset) {
-          workspace.onAssetTagDraftChange(
-            selectedUploadedAsset.filename,
-            value,
-          );
-        }
-      }}
-      onAddUploadedTags={() => {
-        if (selectedUploadedAsset) {
-          workspace.onAddAssetTags(selectedUploadedAsset.filename);
-        }
-      }}
-      onDeleteUploadedAsset={workspace.deleteSelectedUploadedAsset}
-      busy={workspace.busy}
-    />
-  );
-}
-
-function AssetNavigationPane(props: {
-  source: AssetSource;
-  onSourceChange: (source: AssetSource) => void;
-  qpsEnabled: boolean;
-  qpsExpanded: Record<string, boolean>;
-  qpsBrowseByPath: Record<string, BrowsePayload>;
-  qpsSelectedFolder: string;
-  onQpsFolderSelect: (path: string) => void;
-  onQpsFolderToggle: (path: string) => Promise<void>;
-  uploadedKeywords: string[];
-  activeUploadedFilter: string;
-  onUploadedFilterChange: (filter: string) => void;
-}) {
-  const rootFolders =
-    props.qpsBrowseByPath[""]?.entries.filter((entry) => entry.kind === "folder") ??
-    [];
-
-  const renderFolder = (entry: BrowseEntry, depth: number): JSX.Element => {
-    const isExpanded = Boolean(props.qpsExpanded[entry.path]);
-    const children =
-      props.qpsBrowseByPath[entry.path]?.entries.filter(
-        (child) => child.kind === "folder",
-      ) ?? [];
-    const isSelected = props.qpsSelectedFolder === entry.path;
-
-    return (
-      <div key={entry.path}>
-        <div className="flex items-center gap-1" style={{ paddingLeft: depth * 12 }}>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            className="h-7 w-7 shrink-0"
-            aria-label={isExpanded ? "Collapse folder" : "Expand folder"}
-            onClick={() => void props.onQpsFolderToggle(entry.path)}
-          >
-            <ChevronRight
-              className={cn(
-                "h-4 w-4 transition-transform",
-                isExpanded && "rotate-90",
-              )}
-              aria-hidden="true"
-            />
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={isSelected ? "secondary" : "ghost"}
-            className="h-7 min-w-0 flex-1 justify-start gap-2 px-2"
-            onClick={() => props.onQpsFolderSelect(entry.path)}
-          >
-            <Folder className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">{entry.name}</span>
-          </Button>
-        </div>
-        {isExpanded
-          ? children.map((child) => renderFolder(child, depth + 1))
-          : null}
-      </div>
-    );
-  };
-
-  return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="border-b p-3">
-        <ToggleGroup
-          type="single"
-          value={props.source}
-          onValueChange={(value) => {
-            if (value === "qps" || value === "uploaded") props.onSourceChange(value);
-          }}
-          variant="segmented"
-          size="sm"
-          className="w-full"
-        >
-          <ToggleGroupItem value="qps" className="min-w-0 flex-1">
-            QPS
-          </ToggleGroupItem>
-          <ToggleGroupItem value="uploaded" className="min-w-0 flex-1">
-            Uploaded
-          </ToggleGroupItem>
-        </ToggleGroup>
+        <div className="text-xs font-medium uppercase text-muted-foreground">Folders</div>
+        <div className="mt-1 truncate text-sm">{workspace.currentFolder || "/"}</div>
       </div>
-
       <ScrollArea className="min-h-0 flex-1 p-3">
-        {props.source === "qps" ? (
-          props.qpsEnabled ? (
-            <div className="space-y-1">
-              <Button
-                type="button"
-                size="sm"
-                variant={props.qpsSelectedFolder === "" ? "secondary" : "ghost"}
-                className="h-7 w-full justify-start gap-2 px-2"
-                onClick={() => props.onQpsFolderSelect("")}
-              >
-                <Folder className="h-4 w-4" aria-hidden="true" />
-                /
-              </Button>
-              {rootFolders.map((entry) => renderFolder(entry, 0))}
-            </div>
-          ) : (
-            <StatePanel
-              kind="empty"
-              size="sm"
-              title="QPS unavailable"
-              description="The toolkit source is not mounted."
-            />
-          )
-        ) : (
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Button
-                type="button"
-                size="sm"
-                variant={!props.activeUploadedFilter ? "secondary" : "ghost"}
-                className="h-7 w-full justify-start gap-2 px-2"
-                onClick={() => props.onUploadedFilterChange("")}
-              >
-                <Folder className="h-4 w-4" aria-hidden="true" />
-                Uploaded assets
-              </Button>
-            </div>
-            <div>
-              <div className="px-2 pb-1 text-[11px] font-medium uppercase text-muted-foreground">
-                Tags
-              </div>
-              <div className="space-y-1">
-                {props.uploadedKeywords.slice(0, 18).map((keyword) => (
-                  <Button
-                    key={keyword}
-                    type="button"
-                    size="sm"
-                    variant={
-                      props.activeUploadedFilter === keyword ? "secondary" : "ghost"
-                    }
-                    className="h-7 w-full justify-start gap-2 px-2"
-                    onClick={() => props.onUploadedFilterChange(keyword)}
-                  >
-                    <Tag className="h-4 w-4" aria-hidden="true" />
-                    <span className="truncate">{keyword}</span>
-                  </Button>
-                ))}
-                {props.uploadedKeywords.length === 0 ? (
-                  <p className="px-2 text-xs text-muted-foreground">
-                    No uploaded tags yet.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        )}
+        <Tree
+          nodes={workspace.folderTree}
+          expandedIds={workspace.folderTreeExpandedIds}
+          selectedIds={[workspace.currentFolder || "/"]}
+          onExpandedChange={workspace.setFolderTreeExpandedIds}
+          onSelectionChange={(ids) => {
+            const selectedId = ids.at(-1) ?? "/";
+            workspace.setCurrentFolder(folderIdToPath(selectedId));
+          }}
+          selectionMode="single"
+        />
       </ScrollArea>
     </div>
   );
 }
 
-function QpsContentPane(props: {
-  enabled: boolean;
-  error: string | null;
-  entries: BrowseEntry[];
-  selectedPath: string | null;
-  viewMode: "grid" | "list";
-  onSelect: (path: string) => void;
-  note?: string;
-}) {
-  if (!props.enabled) {
-    return (
-      <div className="p-4">
-        <StatePanel
-          kind="empty"
-          title="QPS toolkit is not available"
-          description={props.note ?? "mcp-qps-toolkit is not enabled or configured."}
-        />
-      </div>
-    );
-  }
-
-  if (props.error) {
-    return (
-      <div className="p-4">
-        <StatePanel kind="error" title="QPS toolkit error" description={props.error} />
-      </div>
-    );
-  }
-
-  return (
-    <ScrollArea className="min-h-0 flex-1 p-4">
-      {props.entries.length === 0 ? (
-        <StatePanel
-          kind="empty"
-          title="No files found"
-          description="Try a different folder or change the search."
-        />
-      ) : props.viewMode === "grid" ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
-          {props.entries.map((entry) => (
-            <FileTile
-              key={entry.path}
-              name={entry.name}
-              path={entry.path}
-              previewUrl={`/api/qps-assets/file?path=${encodeURIComponent(entry.path)}`}
-              selected={props.selectedPath === entry.path}
-              onSelect={() => props.onSelect(entry.path)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="divide-y rounded-md border">
-          {props.entries.map((entry) => (
-            <FileRow
-              key={entry.path}
-              name={entry.name}
-              path={entry.path}
-              badge={isImageFile(entry.name) ? "Preview" : "File"}
-              selected={props.selectedPath === entry.path}
-              onSelect={() => props.onSelect(entry.path)}
-            />
-          ))}
-        </div>
-      )}
-    </ScrollArea>
-  );
-}
-
-function UploadedContentPane(props: {
-  assets: AssetRecord[];
-  selectedFilename: string | null;
-  viewMode: "grid" | "list";
-  onSelect: (filename: string) => void;
-}) {
-  return (
-    <ScrollArea className="min-h-0 flex-1 p-4">
-      {props.assets.length === 0 ? (
-        <StatePanel
-          kind="empty"
-          title="No uploaded assets found"
-          description="Upload a file or clear the current search."
-        />
-      ) : props.viewMode === "grid" ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
-          {props.assets.map((asset) => (
-            <FileTile
-              key={asset.filename}
-              name={asset.filename}
-              path={asset.url}
-              previewUrl={`/api/assets/files/${encodeURIComponent(asset.filename)}`}
-              selected={props.selectedFilename === asset.filename}
-              tagCount={asset.keywords.length}
-              onSelect={() => props.onSelect(asset.filename)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="divide-y rounded-md border">
-          {props.assets.map((asset) => (
-            <FileRow
-              key={asset.filename}
-              name={asset.filename}
-              path={asset.url}
-              badge={`${asset.keywords.length} tags`}
-              selected={props.selectedFilename === asset.filename}
-              onSelect={() => props.onSelect(asset.filename)}
-            />
-          ))}
-        </div>
-      )}
-    </ScrollArea>
-  );
-}
-
-function AssetInspector(props: {
-  source: AssetSource;
-  selectedName?: string;
-  qpsBusy: boolean;
-  qpsError: string | null;
-  qpsEntry: BrowseEntry | null;
-  qpsMeta: QpsMeta | null;
-  qpsTagsDraft: string;
-  onQpsTagsDraftChange: (value: string) => void;
-  onSaveQpsTags: () => void;
-  uploadedAsset: AssetRecord | null;
-  uploadedTagDraft: string;
-  onUploadedTagDraftChange: (value: string) => void;
-  onAddUploadedTags: () => void;
-  onDeleteUploadedAsset: () => void;
-  busy: boolean;
-}) {
-  const qpsTags =
-    props.qpsMeta?.kind === "icon"
-      ? props.qpsMeta.icon?.tags ?? []
-      : props.qpsMeta?.kind === "product"
-        ? props.qpsMeta.product?.tags ?? []
-        : props.qpsMeta?.kind === "brand-art"
-          ? props.qpsMeta.art?.tags ?? []
-          : [];
+export function AssetsContextPanel() {
+  const workspace = useAssetsWorkspace();
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
@@ -906,335 +476,345 @@ function AssetInspector(props: {
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold leading-5">Inspector</h3>
           <p className="truncate text-xs text-muted-foreground">
-            {props.selectedName ?? "No file selected"}
+            {workspace.selectedAsset?.path ?? "No file selected"}
           </p>
         </div>
         <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       </div>
       <ScrollArea className="min-h-0 flex-1 p-4">
-        {props.source === "qps" ? (
-          <QpsInspectorBody
-            busy={props.qpsBusy}
-            error={props.qpsError}
-            entry={props.qpsEntry}
-            meta={props.qpsMeta}
-            tags={qpsTags}
-            tagsDraft={props.qpsTagsDraft}
-            onTagsDraftChange={props.onQpsTagsDraftChange}
-            onSaveTags={props.onSaveQpsTags}
-          />
-        ) : (
-          <UploadedInspectorBody
-            asset={props.uploadedAsset}
-            busy={props.busy}
-            tagDraft={props.uploadedTagDraft}
-            onTagDraftChange={props.onUploadedTagDraftChange}
-            onAddTags={props.onAddUploadedTags}
-            onDelete={props.onDeleteUploadedAsset}
-          />
-        )}
+        <AssetInspectorBody
+          asset={workspace.selectedAsset}
+          busy={workspace.busy}
+          draft={workspace.metadataDraft}
+          onDraftChange={workspace.setMetadataDraft}
+          onDelete={() => void workspace.deleteSelectedAsset()}
+          onSave={() => void workspace.saveSelectedMetadata()}
+        />
       </ScrollArea>
     </div>
   );
 }
 
-function QpsInspectorBody(props: {
-  busy: boolean;
-  error: string | null;
-  entry: BrowseEntry | null;
-  meta: QpsMeta | null;
-  tags: string[];
-  tagsDraft: string;
-  onTagsDraftChange: (value: string) => void;
-  onSaveTags: () => void;
+function ManagedContentPane(props: {
+  assets: AssetRecord[];
+  selectedPath: string | null;
+  viewMode: "grid" | "list";
+  onSelect: (path: string) => void;
 }) {
-  if (props.error) {
-    return <StatePanel kind="error" title="QPS toolkit error" description={props.error} />;
-  }
-
-  if (!props.entry) {
-    return (
-      <StatePanel
-        kind="empty"
-        title="Select a file"
-        description="Choose a QPS asset to preview metadata."
-      />
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      {props.busy ? <StatePanel kind="loading" size="sm" loadingLabel="Loading..." /> : null}
-      <PreviewFrame
-        name={props.entry.name}
-        src={`/api/qps-assets/file?path=${encodeURIComponent(props.entry.path)}`}
-      />
-      <MetadataBlock
-        name={props.entry.name}
-        path={props.entry.path}
-        kind={props.meta?.kind}
-        size={props.meta?.stat?.size}
-        modified={props.meta?.stat?.mtimeMs}
-      />
-      <Button asChild variant="outline-subtle" size="sm">
-        <a
-          href={`/api/qps-assets/file?path=${encodeURIComponent(props.entry.path)}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <ExternalLink className="h-4 w-4" aria-hidden="true" />
-          Open file
-        </a>
-      </Button>
-      <TagEditor
-        title="Metadata tags"
-        tags={props.tags}
-        draft={props.tagsDraft}
-        onDraftChange={props.onTagsDraftChange}
-        onSave={props.onSaveTags}
-        disabled={props.busy || props.meta?.write_mode !== "metadata"}
-        actionLabel="Save"
-        note={
-          props.meta?.write_mode === "metadata"
-            ? "Metadata writes are enabled."
-            : "This QPS file is read-only."
-        }
-      />
-    </div>
+    <ScrollArea className="min-h-0 flex-1 p-4">
+      {props.assets.length === 0 ? (
+        <StatePanel
+          kind="empty"
+          title="No assets found"
+          description="Upload a file, import QPS seed assets, or change the current folder/search."
+        />
+      ) : props.viewMode === "grid" ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-5">
+          {props.assets.map((asset) => (
+            <FileTile
+              key={asset.path}
+              asset={asset}
+              selected={props.selectedPath === asset.path}
+              onSelect={() => props.onSelect(asset.path)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {props.assets.map((asset) => (
+            <FileRow
+              key={asset.path}
+              asset={asset}
+              selected={props.selectedPath === asset.path}
+              onSelect={() => props.onSelect(asset.path)}
+            />
+          ))}
+        </div>
+      )}
+    </ScrollArea>
   );
 }
 
-function UploadedInspectorBody(props: {
+function AssetInspectorBody(props: {
   asset: AssetRecord | null;
   busy: boolean;
-  tagDraft: string;
-  onTagDraftChange: (value: string) => void;
-  onAddTags: () => void;
+  draft: MetadataDraft;
+  onDraftChange: (draft: MetadataDraft) => void;
   onDelete: () => void;
+  onSave: () => void;
 }) {
   if (!props.asset) {
     return (
       <StatePanel
         kind="empty"
-        title="Select a file"
-        description="Choose an uploaded asset to preview and manage tags."
+        title="Select an asset"
+        description="Choose a managed asset to preview and edit metadata."
       />
     );
   }
 
+  const fileUrl = `/api/assets/files?path=${encodeURIComponent(props.asset.path)}`;
+
   return (
     <div className="space-y-4">
-      <PreviewFrame
-        name={props.asset.filename}
-        src={`/api/assets/files/${encodeURIComponent(props.asset.filename)}`}
-      />
-      <MetadataBlock
-        name={props.asset.filename}
-        path={props.asset.url}
-        kind="uploaded"
-      />
+      <PreviewFrame asset={props.asset} />
+      <MetadataBlock asset={props.asset} />
       <div className="flex flex-wrap gap-2">
+        <AssetPreviewDialog asset={props.asset}>
+          <Button variant="outline-subtle" size="sm">
+            <Eye className="h-4 w-4" aria-hidden="true" />
+            Preview
+          </Button>
+        </AssetPreviewDialog>
         <Button asChild variant="outline-subtle" size="sm">
-          <a
-            href={`/api/assets/files/${encodeURIComponent(props.asset.filename)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          <a href={fileUrl} target="_blank" rel="noreferrer">
+            <Download className="h-4 w-4" aria-hidden="true" />
             Open file
           </a>
         </Button>
-        <Button
-          variant="outline-subtle"
-          size="sm"
-          onClick={props.onDelete}
-          disabled={props.busy}
-        >
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-          Delete
-        </Button>
+        <DeleteAssetButton asset={props.asset} busy={props.busy} onDelete={props.onDelete} />
       </div>
-      <TagEditor
-        title="Keywords"
-        tags={props.asset.keywords}
-        draft={props.tagDraft}
-        onDraftChange={props.onTagDraftChange}
-        onSave={props.onAddTags}
-        disabled={props.busy}
-        actionLabel="Add"
-        note="Tags improve search and grouping in the uploaded library."
-      />
-    </div>
-  );
-}
-
-function FileTile(props: {
-  name: string;
-  path: string;
-  previewUrl: string;
-  selected: boolean;
-  tagCount?: number;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="min-w-0 rounded-md border bg-background p-2 text-start transition-colors hover:bg-surface-muted data-[selected=true]:ring-2 data-[selected=true]:ring-ring"
-      data-selected={props.selected}
-      onClick={props.onSelect}
-    >
-      <div className="relative aspect-square overflow-hidden rounded border bg-surface-muted">
-        {isImageFile(props.name) ? (
-          <Image
-            fill
-            unoptimized
-            alt={props.name}
-            src={props.previewUrl}
-            className="object-contain"
-            sizes="(min-width: 1280px) 14vw, 45vw"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <File className="h-7 w-7 text-muted-foreground" aria-hidden="true" />
+      <Card>
+        <CardContent className="space-y-3 p-3">
+          <div className="grid gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="asset-title">Title</Label>
+              <Input
+                id="asset-title"
+                value={props.draft.title}
+                onChange={(event) =>
+                  props.onDraftChange({ ...props.draft, title: event.target.value })
+                }
+                disabled={props.busy}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="asset-kind">Kind</Label>
+              <Input
+                id="asset-kind"
+                value={props.draft.kind}
+                onChange={(event) =>
+                  props.onDraftChange({ ...props.draft, kind: event.target.value })
+                }
+                disabled={props.busy}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="asset-tags">Tags</Label>
+              <TagInput
+                id="asset-tags"
+                value={props.draft.tags}
+                onValueChange={(tags) => props.onDraftChange({ ...props.draft, tags })}
+                placeholder="Add tag..."
+                disabled={props.busy}
+              />
+            </div>
           </div>
-        )}
-      </div>
-      <div className="mt-2 min-w-0">
-        <div className="truncate text-sm font-medium">{props.name}</div>
-        <div className="truncate font-mono text-xs text-muted-foreground">
-          {props.path}
-        </div>
-        {typeof props.tagCount === "number" ? (
-          <Badge variant="secondary" className="mt-2">
-            {props.tagCount} tags
-          </Badge>
-        ) : null}
-      </div>
-    </button>
+          <Button size="sm" onClick={props.onSave} disabled={props.busy}>
+            <Save className="h-4 w-4" aria-hidden="true" />
+            Save metadata
+          </Button>
+        </CardContent>
+      </Card>
+      <TagList tags={assetTags(props.asset)} />
+    </div>
   );
 }
 
-function FileRow(props: {
-  name: string;
-  path: string;
-  badge: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
+function FileTile(props: { asset: AssetRecord; selected: boolean; onSelect: () => void }) {
   return (
-    <button
-      type="button"
-      className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-start transition-colors hover:bg-surface-muted data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+    <Card
+      className="min-w-0 p-0 text-start data-[selected=true]:ring-2 data-[selected=true]:ring-ring"
       data-selected={props.selected}
-      onClick={props.onSelect}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <File className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{props.name}</div>
-          <div className="truncate font-mono text-xs text-muted-foreground">
-            {props.path}
+      <CardContent className="p-2">
+        <div className="relative aspect-square overflow-hidden rounded border bg-surface-muted">
+          {isImageAsset(props.asset) ? (
+            <Image
+              fill
+              unoptimized
+              alt={props.asset.title}
+              src={`/api/assets/files?path=${encodeURIComponent(props.asset.path)}`}
+              className="object-contain"
+              sizes="(min-width: 1280px) 14vw, 45vw"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <File className="h-7 w-7 text-muted-foreground" aria-hidden="true" />
+            </div>
+          )}
+        </div>
+        <div className="mt-2 min-w-0">
+          <div className="truncate text-sm font-medium">{props.asset.title}</div>
+          <div className="truncate text-xs text-muted-foreground">{props.asset.path}</div>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <Badge variant="secondary">{props.asset.kind}</Badge>
+          <span className="text-xs text-muted-foreground">{assetTags(props.asset).length} tags</span>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button variant="outline-subtle" size="sm" onClick={props.onSelect}>
+            Select
+          </Button>
+          <AssetPreviewDialog asset={props.asset}>
+            <Button variant="ghost" size="sm">
+              <Eye className="h-4 w-4" aria-hidden="true" />
+              Preview
+            </Button>
+          </AssetPreviewDialog>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FileRow(props: { asset: AssetRecord; selected: boolean; onSelect: () => void }) {
+  return (
+    <Card
+      className="data-[selected=true]:bg-surface-muted"
+      data-selected={props.selected}
+    >
+      <CardContent className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 p-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {isImageAsset(props.asset) ? (
+            <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          ) : (
+            <File className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{props.asset.title}</div>
+            <div className="truncate text-xs text-muted-foreground">{props.asset.path}</div>
           </div>
         </div>
-      </div>
-      <Badge variant="secondary">{props.badge}</Badge>
-    </button>
-  );
-}
-
-function PreviewFrame(props: { name: string; src: string }) {
-  return (
-    <div className="relative aspect-[16/10] overflow-hidden rounded-md border bg-surface-muted">
-      {isImageFile(props.name) ? (
-        <Image
-          fill
-          unoptimized
-          alt={props.name}
-          src={props.src}
-          className="object-contain"
-          sizes="320px"
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <ImageIcon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">{props.asset.kind}</Badge>
+          <span className="text-xs text-muted-foreground">{assetTags(props.asset).length} tags</span>
+          <Button variant="outline-subtle" size="sm" onClick={props.onSelect}>
+            Select
+          </Button>
+          <AssetPreviewDialog asset={props.asset}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Preview ${props.asset.title}`}
+            >
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </AssetPreviewDialog>
         </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function MetadataBlock(props: {
-  name: string;
-  path: string;
-  kind?: string;
-  size?: number;
-  modified?: number;
-}) {
+function AssetPreviewDialog(props: { asset: AssetRecord; children: ReactNode }) {
+  const fileUrl = `/api/assets/files?path=${encodeURIComponent(props.asset.path)}`;
+
   return (
-    <div className="min-w-0 space-y-1">
-      <div className="truncate text-sm font-semibold">{props.name}</div>
-      <div className="break-all font-mono text-xs text-muted-foreground">
-        {props.path}
-      </div>
-      <div className="flex flex-wrap gap-2 pt-1">
-        {props.kind ? <Badge variant="secondary">{props.kind}</Badge> : null}
-        {typeof props.size === "number" ? (
-          <Badge variant="outline">{props.size} bytes</Badge>
-        ) : null}
-      </div>
-      {typeof props.modified === "number" ? (
-        <div className="text-xs text-muted-foreground">
-          Modified {formatFileTimestamp(props.modified)}
+    <Dialog>
+      <DialogTrigger asChild>{props.children}</DialogTrigger>
+      <DialogContent size="full" className="grid grid-rows-[auto_minmax(0,1fr)_auto]">
+        <DialogHeader>
+          <DialogTitle>{props.asset.title}</DialogTitle>
+          <DialogDescription>{props.asset.path}</DialogDescription>
+        </DialogHeader>
+        <Card className="min-h-0 overflow-hidden bg-surface-muted">
+          <CardContent className="relative h-full min-h-[20rem] p-0">
+            {isImageAsset(props.asset) ? (
+              <Image
+                fill
+                unoptimized
+                src={fileUrl}
+                alt={props.asset.title}
+                className="object-contain"
+                sizes="95vw"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <File className="h-12 w-12 text-muted-foreground" aria-hidden="true" />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <DialogFooter>
+          <Button asChild variant="outline-subtle" size="sm">
+            <a href={fileUrl} target="_blank" rel="noreferrer">
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Open file
+            </a>
+          </Button>
+          <DialogClose asChild>
+            <Button size="sm">Close</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PreviewFrame(props: { asset: AssetRecord }) {
+  const fileUrl = `/api/assets/files?path=${encodeURIComponent(props.asset.path)}`;
+  return (
+    <Card className="overflow-hidden bg-surface-muted">
+      <CardContent className="p-0">
+        <div className="relative aspect-video">
+          {isImageAsset(props.asset) ? (
+            <Image
+              fill
+              unoptimized
+              src={fileUrl}
+              alt={props.asset.title}
+              className="object-contain"
+              sizes="20rem"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <File className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+            </div>
+          )}
         </div>
-      ) : null}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function TagEditor(props: {
-  title: string;
-  tags: string[];
-  draft: string;
-  note: string;
-  actionLabel: string;
-  disabled: boolean;
-  onDraftChange: (value: string) => void;
-  onSave: () => void;
-}) {
+function MetadataBlock(props: { asset: AssetRecord }) {
+  const rows = [
+    ["Path", props.asset.path],
+    ["MIME", props.asset.mime],
+    ["Source", props.asset.source],
+    ["Size", `${props.asset.size.toLocaleString()} bytes`],
+    ["Modified", formatFileTimestamp(props.asset.mtimeMs)],
+  ];
+
   return (
-    <div className="space-y-3 border-t pt-3">
-      <div>
-        <Label>{props.title}</Label>
-        <p className="mt-1 text-xs text-muted-foreground">{props.note}</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {props.tags.length === 0 ? (
-          <span className="text-xs text-muted-foreground">No tags yet.</span>
-        ) : (
-          props.tags.map((tag) => (
-            <Badge key={tag} variant="secondary">
-              {tag}
-            </Badge>
-          ))
-        )}
-      </div>
-      <div className="flex gap-2">
-        <Input
-          value={props.draft}
-          onChange={(event) => props.onDraftChange(event.target.value)}
-          placeholder="comma,separated,tags"
-          disabled={props.disabled}
-        />
-        <Button
-          variant="outline-subtle"
-          size="sm"
-          onClick={props.onSave}
-          disabled={props.disabled}
-        >
-          <Save className="h-4 w-4" aria-hidden="true" />
-          {props.actionLabel}
-        </Button>
-      </div>
+    <Card>
+      <CardContent className="space-y-2 p-3">
+      {rows.map(([label, value]) => (
+        <div key={label} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2 text-xs">
+          <div className="text-muted-foreground">{label}</div>
+          <div className="min-w-0 truncate">{value}</div>
+        </div>
+      ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TagList(props: { tags: string[] }) {
+  if (props.tags.length === 0) {
+    return <p className="text-xs text-muted-foreground">No tags yet.</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {props.tags.map((tag) => (
+        <Badge key={tag} variant="secondary">
+          <Tag className="h-3 w-3" aria-hidden="true" />
+          {tag}
+        </Badge>
+      ))}
     </div>
   );
 }
