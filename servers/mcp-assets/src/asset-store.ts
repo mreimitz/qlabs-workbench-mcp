@@ -527,14 +527,17 @@ export const createAssetStore = ({ assetsRoot, qpsAssetsRoot }: AssetStoreOption
     const stat = await fs.stat(abs);
     const index = await readIndex();
     const existing = index.assets[assetPath] ?? toRecord(assetPath, stat);
+    const definedPatch = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    ) as AssetMetadataPatch;
     const nextRecord = stableRecord({
       ...existing,
-      ...patch,
+      ...definedPatch,
       path: assetPath,
       filename: path.posix.basename(assetPath),
-      title: patch.title?.trim() || existing.title,
-      kind: patch.kind ?? existing.kind,
-      tags: patch.tags ? uniqueSorted(patch.tags) : existing.tags,
+      title: definedPatch.title?.trim() || existing.title,
+      kind: definedPatch.kind ?? existing.kind,
+      tags: definedPatch.tags ? uniqueSorted(definedPatch.tags) : existing.tags,
       mime: detectContentType(assetPath),
       size: stat.size,
       mtimeMs: stat.mtimeMs,

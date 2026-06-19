@@ -37,7 +37,6 @@ import {
   ToggleGroup,
   ToggleGroupItem,
   Tree,
-  cn,
   type TreeNode,
   type UploadFile,
 } from "@brand/ui";
@@ -50,7 +49,6 @@ import {
   ImageIcon,
   Info,
   List,
-  RefreshCw,
   Save,
   Search,
   Tag,
@@ -60,7 +58,6 @@ import {
 import {
   CommandBar,
   CompactBadge,
-  EnterpriseHeader,
   EnterprisePage,
   Panel,
 } from "./enterprise";
@@ -69,7 +66,6 @@ import {
   buildAssetFolderTree,
   folderIdToPath,
   joinAssetPath,
-  splitAssetTags,
   type AssetFolderNode,
 } from "./assets-helpers";
 import { formatFileTimestamp } from "./format";
@@ -128,7 +124,9 @@ type AssetsWorkspaceContextValue = AssetsWorkspaceProps & {
   setFolderTreeExpandedIds: (ids: string[]) => void;
   setMetadataDraft: (draft: MetadataDraft) => void;
   setSelectedAssetPath: (path: string | null) => void;
+  setUploadDialogOpen: (open: boolean) => void;
   setViewMode: (mode: "grid" | "list") => void;
+  uploadDialogOpen: boolean;
   uploadFiles: UploadFile[];
   viewMode: "grid" | "list";
 };
@@ -166,6 +164,7 @@ export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [currentFolder, setCurrentFolder] = useState("");
   const [folderTreeExpandedIds, setFolderTreeExpandedIds] = useState<string[]>(["/"]);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [selectedAssetPath, setSelectedAssetPath] = useState<string | null>(
     props.filteredAssets[0]?.path ?? null,
@@ -225,7 +224,10 @@ export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
         .onUploadAsset(joinAssetPath(currentFolder, uploadFile.file.name), uploadFile.file, {
           tags: props.assetUploadTags,
         })
-        .finally(() => setUploadFiles([]));
+        .finally(() => {
+          setUploadFiles([]);
+          setUploadDialogOpen(false);
+        });
     } catch {
       setUploadFiles([]);
     }
@@ -263,7 +265,9 @@ export function AssetsWorkspaceProvider(props: AssetsWorkspaceProviderProps) {
         setFolderTreeExpandedIds,
         setMetadataDraft,
         setSelectedAssetPath,
+        setUploadDialogOpen,
         setViewMode,
+        uploadDialogOpen,
         uploadFiles,
         viewMode,
       }}
@@ -278,115 +282,49 @@ export function AssetsView() {
 
   return (
     <EnterprisePage>
-      <EnterpriseHeader
-        eyebrow="Managed library"
-        title="Assets"
-        description="Manage the canonical asset library used by MCP lookup tools."
-        meta={
-          <>
-            <CompactBadge variant="success">ASSETS_ROOT</CompactBadge>
-            <CompactBadge variant="secondary">{workspace.totalAssets} assets</CompactBadge>
-          </>
-        }
-      />
-
       <section id="assets-library" className="scroll-mt-4">
         <Panel
           title="Asset library"
-          description="Upload, inspect, tag, import, and delete managed assets."
+          description="Browse, upload, inspect, and edit managed assets."
           actions={
-            <CompactBadge variant="secondary">
-              {workspace.galleryAssets.length} shown
-            </CompactBadge>
+            <div className="flex items-center gap-2">
+              <CompactBadge variant="success">ASSETS_ROOT</CompactBadge>
+              <CompactBadge variant="secondary">{workspace.galleryAssets.length} shown</CompactBadge>
+              <CompactBadge variant="secondary">{workspace.totalAssets} assets</CompactBadge>
+            </div>
           }
-          className="flex h-[calc(100dvh-11rem)] min-h-[38rem] flex-col"
+          className="flex h-[calc(100dvh-6rem)] min-h-[38rem] flex-col"
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            <CommandBar className="items-start gap-2">
-              <div className="flex w-full min-w-0 flex-col gap-2">
-                <div className="grid w-full min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_16rem]">
-                  <div className="relative min-w-0">
-                    <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                    <Input
-                      className="w-full pl-8"
-                      placeholder="Search paths, titles, or tags..."
-                      value={workspace.assetKeywordFilter}
-                      onChange={(event) =>
-                        workspace.onAssetKeywordFilterChange(event.target.value)
-                      }
-                    />
-                  </div>
-                  <TagInput
-                    className="w-full"
-                    value={workspace.assetUploadTags}
-                    onValueChange={workspace.onAssetUploadTagsChange}
-                    placeholder="Upload tags..."
-                    aria-label="Upload tags"
-                    disabled={workspace.busy}
-                    validate={(tag) =>
-                      splitAssetTags(tag).length === 1 ? true : "Use one tag at a time."
-                    }
-                  />
-                </div>
-                <FileUpload
-                  files={workspace.uploadFiles}
-                  onFilesChange={workspace.onUploadFilesChange}
-                  maxFiles={1}
-                  disabled={workspace.busy}
-                  className="min-w-0"
-                >
-                  <FileUploadDropzone className="min-h-10 flex-row justify-start gap-2 rounded-md border border-dashed px-3 py-2">
-                    <Upload className="size-4 text-muted-foreground" aria-hidden="true" />
-                    <span className="truncate text-sm font-medium">
-                      Upload to {workspace.currentFolder || "/"}
-                    </span>
-                    <span className="text-xs text-muted-foreground">drop or browse</span>
-                  </FileUploadDropzone>
-                  <FileUploadList>
-                    {workspace.uploadFiles.map((uploadFile) => (
-                      <FileUploadItem
-                        key={uploadFile.id}
-                        uploadFile={uploadFile}
-                        status={workspace.busy ? "uploading" : uploadFile.status}
-                      />
-                    ))}
-                  </FileUploadList>
-                </FileUpload>
-                <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <DeleteAssetButton
-                      asset={workspace.selectedAsset}
-                      busy={workspace.busy}
-                      onDelete={() => void workspace.deleteSelectedAsset()}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={workspace.busy}
-                      onClick={() => void workspace.onImportQpsAssets()}
-                    >
-                      <RefreshCw className={cn("h-4 w-4", workspace.busy && "animate-spin")} aria-hidden="true" />
-                      Import QPS
-                    </Button>
-                  </div>
-                  <ToggleGroup
-                    type="single"
-                    value={workspace.viewMode}
-                    onValueChange={(value) => {
-                      if (value === "grid" || value === "list") workspace.setViewMode(value);
-                    }}
-                    variant="segmented"
-                    size="sm"
-                  >
-                    <ToggleGroupItem value="grid" aria-label="Grid view">
-                      <Grid2X2 className="h-4 w-4" aria-hidden="true" />
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="list" aria-label="List view">
-                      <List className="h-4 w-4" aria-hidden="true" />
-                    </ToggleGroupItem>
-                  </ToggleGroup>
-                </div>
+            <CommandBar className="gap-2">
+              <div className="relative min-w-[14rem] flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input
+                  className="w-full pl-8"
+                  placeholder="Search paths, titles, or tags..."
+                  value={workspace.assetKeywordFilter}
+                  onChange={(event) =>
+                    workspace.onAssetKeywordFilterChange(event.target.value)
+                  }
+                />
               </div>
+              <UploadAssetDialog />
+              <ToggleGroup
+                type="single"
+                value={workspace.viewMode}
+                onValueChange={(value) => {
+                  if (value === "grid" || value === "list") workspace.setViewMode(value);
+                }}
+                variant="segmented"
+                size="sm"
+              >
+                <ToggleGroupItem value="grid" aria-label="Grid view">
+                  <Grid2X2 className="h-4 w-4" aria-hidden="true" />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="list" aria-label="List view">
+                  <List className="h-4 w-4" aria-hidden="true" />
+                </ToggleGroupItem>
+              </ToggleGroup>
             </CommandBar>
 
             <ManagedContentPane
@@ -399,6 +337,54 @@ export function AssetsView() {
         </Panel>
       </section>
     </EnterprisePage>
+  );
+}
+
+function UploadAssetDialog() {
+  const workspace = useAssetsWorkspace();
+
+  return (
+    <Dialog open={workspace.uploadDialogOpen} onOpenChange={workspace.setUploadDialogOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline-subtle" size="sm" disabled={workspace.busy}>
+          <Upload className="h-4 w-4" aria-hidden="true" />
+          Upload
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Upload asset</DialogTitle>
+          <DialogDescription>
+            Upload a file to {workspace.currentFolder || "/"}.
+          </DialogDescription>
+        </DialogHeader>
+        <FileUpload
+          files={workspace.uploadFiles}
+          onFilesChange={workspace.onUploadFilesChange}
+          maxFiles={1}
+          disabled={workspace.busy}
+        >
+          <FileUploadDropzone className="min-h-32 rounded-md border border-dashed">
+            <Upload className="size-5 text-muted-foreground" aria-hidden="true" />
+            <span className="text-sm font-medium">Drop a file here or browse</span>
+          </FileUploadDropzone>
+          <FileUploadList>
+            {workspace.uploadFiles.map((uploadFile) => (
+              <FileUploadItem
+                key={uploadFile.id}
+                uploadFile={uploadFile}
+                status={workspace.busy ? "uploading" : uploadFile.status}
+              />
+            ))}
+          </FileUploadList>
+        </FileUpload>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline-subtle" size="sm">Close</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -625,8 +611,17 @@ function AssetInspectorBody(props: {
 function FileTile(props: { asset: AssetRecord; selected: boolean; onSelect: () => void }) {
   return (
     <Card
-      className="min-w-0 p-0 text-start data-[selected=true]:ring-2 data-[selected=true]:ring-ring"
+      className="min-w-0 cursor-pointer p-0 text-start transition-colors hover:bg-surface-muted/40 data-[selected=true]:ring-2 data-[selected=true]:ring-ring"
       data-selected={props.selected}
+      role="button"
+      tabIndex={0}
+      onClick={props.onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          props.onSelect();
+        }
+      }}
     >
       <CardContent className="p-2">
         <div className="relative aspect-square overflow-hidden rounded border bg-surface-muted">
@@ -644,6 +639,17 @@ function FileTile(props: { asset: AssetRecord; selected: boolean; onSelect: () =
               <File className="h-7 w-7 text-muted-foreground" aria-hidden="true" />
             </div>
           )}
+          <AssetPreviewDialog asset={props.asset}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="absolute right-2 top-2 bg-background/60 text-foreground/80 backdrop-blur hover:bg-background/85 hover:text-foreground"
+              aria-label={`Preview ${props.asset.title}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </AssetPreviewDialog>
         </div>
         <div className="mt-2 min-w-0">
           <div className="truncate text-sm font-medium">{props.asset.title}</div>
@@ -653,17 +659,6 @@ function FileTile(props: { asset: AssetRecord; selected: boolean; onSelect: () =
           <Badge variant="secondary">{props.asset.kind}</Badge>
           <span className="text-xs text-muted-foreground">{assetTags(props.asset).length} tags</span>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Button variant="outline-subtle" size="sm" onClick={props.onSelect}>
-            Select
-          </Button>
-          <AssetPreviewDialog asset={props.asset}>
-            <Button variant="ghost" size="sm">
-              <Eye className="h-4 w-4" aria-hidden="true" />
-              Preview
-            </Button>
-          </AssetPreviewDialog>
-        </div>
       </CardContent>
     </Card>
   );
@@ -672,8 +667,17 @@ function FileTile(props: { asset: AssetRecord; selected: boolean; onSelect: () =
 function FileRow(props: { asset: AssetRecord; selected: boolean; onSelect: () => void }) {
   return (
     <Card
-      className="data-[selected=true]:bg-surface-muted"
+      className="cursor-pointer transition-colors hover:bg-surface-muted/40 data-[selected=true]:bg-surface-muted"
       data-selected={props.selected}
+      role="button"
+      tabIndex={0}
+      onClick={props.onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          props.onSelect();
+        }
+      }}
     >
       <CardContent className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 p-3">
         <div className="flex min-w-0 items-center gap-3">
@@ -690,14 +694,12 @@ function FileRow(props: { asset: AssetRecord; selected: boolean; onSelect: () =>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">{props.asset.kind}</Badge>
           <span className="text-xs text-muted-foreground">{assetTags(props.asset).length} tags</span>
-          <Button variant="outline-subtle" size="sm" onClick={props.onSelect}>
-            Select
-          </Button>
           <AssetPreviewDialog asset={props.asset}>
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label={`Preview ${props.asset.title}`}
+              onClick={(event) => event.stopPropagation()}
             >
               <Eye className="h-4 w-4" aria-hidden="true" />
             </Button>

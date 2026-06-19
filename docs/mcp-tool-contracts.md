@@ -78,7 +78,7 @@ QPS asset resolution reads generated catalogs from the managed `ASSETS_ROOT` whe
   - Input: `{ "query": string, "level"?: "command" | "skill", "top"?: number }`
   - Output: JSON `{ "winner": ..., "confidence": string, "action": string, "ranked": ... }`
 - `qps_resolve_asset`
-  - Input: `{ "kind": "icon" | "hero" | "product" | "brand-art", "query": string, "slot"?: string }`
+  - Input: `{ "kind": "icon" | "hero" | "product" | "brand-art" | "brand", "query": string, "slot"?: string }`
   - Output: JSON `{ "ok": boolean, "abs_path": string | null, "rel_path": string | null, "label": string, "kind": string, "details": object }`
 - `qps_pick_hero`
   - Input: `{ "copy": string, "preferred_type"?: string }`

@@ -212,6 +212,42 @@ describe("managed asset store", () => {
     expect(manifestAfterDelete.files["hero.png"]).toBeUndefined();
   });
 
+  test("preserves existing optional metadata when patch fields are undefined", async () => {
+    const store = createAssetStore({ assetsRoot: tmpRoot });
+    await store.writeAsset({
+      path: "art/hero.png",
+      content: Buffer.from("png"),
+      metadata: {
+        kind: "brand-art",
+        tags: ["hero"],
+        slots: ["hero", "cover"],
+        source: "qps-import",
+        sourcePath: "art/hero.png",
+      },
+    });
+
+    await store.updateMetadata("art/hero.png", {
+      tags: ["edited"],
+      slots: undefined,
+      source: undefined,
+      sourcePath: undefined,
+    });
+
+    const index = await store.readIndex();
+    expect(index.assets["art/hero.png"]).toMatchObject({
+      tags: ["edited"],
+      slots: ["hero", "cover"],
+      source: "qps-import",
+      sourcePath: "art/hero.png",
+    });
+
+    const manifest = JSON.parse(await fs.readFile(path.join(tmpRoot, "art", "manifest.json"), "utf8"));
+    expect(manifest.files["hero.png"]).toEqual({
+      slot: ["hero", "cover"],
+      tags: ["edited"],
+    });
+  });
+
   test("imports QPS assets idempotently without overwriting managed edits", async () => {
     const qpsRoot = path.join(tmpRoot, "qps-source");
     const assetsRoot = path.join(tmpRoot, "managed");

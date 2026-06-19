@@ -26,6 +26,42 @@ const writeIconCatalog = async (tags: string[]) => {
   });
 };
 
+const writeBrandCatalog = async () => {
+  await fs.mkdir(path.join(tmpRoot, "brands"), { recursive: true });
+  await fs.writeFile(path.join(tmpRoot, "brands", "amazon.svg"), "<svg />", "utf8");
+  await writeJson(path.join(tmpRoot, "brands.pack.json"), {
+    files: {
+      amazon: {
+        title: "Amazon",
+        tags: ["amazon.com", "cloud", "e-commerce", "general"],
+        aliases: ["amazon.com"],
+        categories: ["E-commerce", "Cloud"],
+        qlik_category: "general",
+        license: "Fair use",
+        hex: "#FF9900",
+      },
+    },
+  });
+};
+
+const writeArtManifest = async (tags: string[]) => {
+  await fs.mkdir(path.join(tmpRoot, "art"), { recursive: true });
+  await fs.writeFile(path.join(tmpRoot, "art", "abstract-lines-left-alt.png"), "png", "utf8");
+  await fs.writeFile(path.join(tmpRoot, "art", "abstract-lines-left.png"), "png", "utf8");
+  await writeJson(path.join(tmpRoot, "art", "manifest.json"), {
+    files: {
+      "abstract-lines-left.png": {
+        slot: ["divider"],
+        tags: ["abstract", "divider"],
+      },
+      "abstract-lines-left-alt.png": {
+        slot: ["divider"],
+        tags,
+      },
+    },
+  });
+};
+
 beforeEach(async () => {
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "qps-assets-"));
   await fs.mkdir(path.join(tmpRoot, "icons", "data-pipelines"), { recursive: true });
@@ -91,6 +127,53 @@ describe("managed QPS asset resolver", () => {
       ok: false,
       abs_path: null,
       rel_path: "framework/assets/icons/data-pipelines/warehouse.svg",
+    });
+  });
+
+  test("resolves brands from managed brand pack", async () => {
+    await writeBrandCatalog();
+    const resolver = createQpsAssetResolver({
+      assetsRoot: tmpRoot,
+      qpsPluginRoot: path.join(tmpRoot, "missing-qps-plugin"),
+    });
+
+    await expect(resolver.resolveAsset("brand", "amazon cloud commerce")).resolves.toMatchObject({
+      ok: true,
+      abs_path: path.join(tmpRoot, "brands", "amazon.svg"),
+      rel_path: "framework/assets/brands/amazon.svg",
+      label: "Amazon",
+      kind: "brand",
+      details: {
+        slug: "amazon",
+        score: expect.any(Number),
+        fallback: false,
+      },
+    });
+  });
+
+  test("reloads managed art manifest when metadata changes", async () => {
+    await writeArtManifest(["abstract", "divider"]);
+    const resolver = createQpsAssetResolver({
+      assetsRoot: tmpRoot,
+      qpsPluginRoot: path.join(tmpRoot, "missing-qps-plugin"),
+    });
+
+    await expect(resolver.resolveAsset("brand-art", "diagnosticarttag", "divider")).resolves.toMatchObject({
+      rel_path: "assets/art/streak-left-heavy-wash.png",
+      details: {
+        score: 0,
+        fallback: true,
+      },
+    });
+
+    await writeArtManifest(["abstract", "diagnosticarttag", "divider"]);
+
+    await expect(resolver.resolveAsset("brand-art", "diagnosticarttag", "divider")).resolves.toMatchObject({
+      rel_path: "assets/art/abstract-lines-left-alt.png",
+      details: {
+        score: 3,
+        fallback: false,
+      },
     });
   });
 });

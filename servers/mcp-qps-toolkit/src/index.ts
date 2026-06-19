@@ -1283,10 +1283,10 @@ const getServer = () => {
   server.registerTool(
     "qps_resolve_asset",
     {
-      description: "Resolve an asset from qps-toolkit shared catalogs (icon|hero|product|brand-art).",
-      inputSchema: { kind: z.enum(["icon", "hero", "product", "brand-art"]), query: z.string(), slot: z.string().optional() },
+      description: "Resolve an asset from qps-toolkit shared catalogs (icon|hero|product|brand-art|brand).",
+      inputSchema: { kind: z.enum(["icon", "hero", "product", "brand-art", "brand"]), query: z.string(), slot: z.string().optional() },
     },
-    async (args: { kind: "icon" | "hero" | "product" | "brand-art"; query: string; slot?: string }) => {
+    async (args: { kind: "icon" | "hero" | "product" | "brand-art" | "brand"; query: string; slot?: string }) => {
       const res = await assetResolver.resolveAsset(args.kind, args.query, args.slot ?? null);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }
@@ -1409,9 +1409,9 @@ const getServer = () => {
     "resolve_asset",
     {
       description: "Alias for qps_resolve_asset (compat with qps-assets tool names).",
-      inputSchema: { kind: z.enum(["icon", "hero", "product", "brand-art"]), query: z.string(), slot: z.string().optional() },
+      inputSchema: { kind: z.enum(["icon", "hero", "product", "brand-art", "brand"]), query: z.string(), slot: z.string().optional() },
     },
-    async (args: { kind: "icon" | "hero" | "product" | "brand-art"; query: string; slot?: string }) => {
+    async (args: { kind: "icon" | "hero" | "product" | "brand-art" | "brand"; query: string; slot?: string }) => {
       const res = await assetResolver.resolveAsset(args.kind, args.query, args.slot ?? null);
       return { content: [{ type: "text", text: JSON.stringify(res) }] };
     }

@@ -38,9 +38,24 @@ type ArtManifest = {
   >;
 };
 
+type BrandsPack = {
+  files?: Record<
+    string,
+    {
+      title?: string;
+      tags?: string[];
+      aliases?: string[];
+      categories?: string[];
+      qlik_category?: string | null;
+      license?: string | null;
+      hex?: string | null;
+    }
+  >;
+};
+
 type JsonMemo<T> = { mtimeMs: number; size: number; value: T };
 
-export type QpsAssetKind = "icon" | "hero" | "product" | "brand-art";
+export type QpsAssetKind = "icon" | "hero" | "product" | "brand-art" | "brand";
 
 export type QpsAssetResolverOptions = {
   assetsRoot: string;
@@ -156,7 +171,7 @@ const scoreIcon = (entry: IconCatalogEntry, queryTokens: Set<string>) => {
 export const createQpsAssetResolver = ({ assetsRoot, qpsPluginRoot }: QpsAssetResolverOptions) => {
   let iconsPackMemo: JsonMemo<IconsPack> | null = null;
   let productsPackMemo: JsonMemo<ProductsPack> | null = null;
-  let artManifestMemo: JsonMemo<ArtManifest> | null = null;
+  let brandsPackMemo: JsonMemo<BrandsPack> | null = null;
 
   const loadIconsPack = async () => {
     iconsPackMemo = await readJsonMemo<IconsPack>(
@@ -175,11 +190,15 @@ export const createQpsAssetResolver = ({ assetsRoot, qpsPluginRoot }: QpsAssetRe
   };
 
   const loadArtManifest = async () => {
-    artManifestMemo = await readJsonMemo<ArtManifest>(
-      path.posix.join(assetsRoot, "art", "manifest.json"),
-      artManifestMemo,
+    return readJson<ArtManifest>(path.posix.join(assetsRoot, "art", "manifest.json"));
+  };
+
+  const loadBrandsPack = async () => {
+    brandsPackMemo = await readJsonMemo<BrandsPack>(
+      path.posix.join(assetsRoot, "brands.pack.json"),
+      brandsPackMemo,
     );
-    return artManifestMemo.value;
+    return brandsPackMemo.value;
   };
 
   const iconAbsPath = (entry: IconCatalogEntry) =>
@@ -324,6 +343,7 @@ export const createQpsAssetResolver = ({ assetsRoot, qpsPluginRoot }: QpsAssetRe
     const manifest = await loadArtManifest();
     const files = manifest.files ?? {};
     const queryTokens = wordTokens(query);
+    const hasQuery = queryTokens.size > 0;
     const wantedSlot = slot ? norm(slot) : null;
 
     let best: { file: string; score: number; tags: string[] } | null = null;
@@ -332,6 +352,7 @@ export const createQpsAssetResolver = ({ assetsRoot, qpsPluginRoot }: QpsAssetRe
       const tags = (meta.tags ?? []).map(norm);
       const tagSet = new Set(tags);
       const hits = [...queryTokens].filter((token) => tagSet.has(token)).length;
+      if (hasQuery && hits === 0) continue;
       const score = hits * 2 + (wantedSlot ? 1 : 0);
       if (score <= 0) continue;
       if (!best || score > best.score) best = { file, score, tags };
@@ -356,9 +377,111 @@ export const createQpsAssetResolver = ({ assetsRoot, qpsPluginRoot }: QpsAssetRe
     };
   };
 
+  const resolveBrand = async (query: string) => {
+    const pack = await loadBrandsPack();
+    const queryTokens = wordTokens(query);
+    let best: {
+      slug: string;
+      meta: NonNullable<BrandsPack["files"]>[string];
+      score: number;
+      reasons: string[];
+    } | null = null;
+
+    for (const [slug, meta] of Object.entries(pack.files ?? {})) {
+      const slugTokens = wordTokens(slug);
+      const titleTokens = wordTokens(meta.title ?? "");
+      const tags = meta.tags ?? [];
+      const aliases = meta.aliases ?? [];
+      const categories = meta.categories ?? [];
+      let score = 0;
+      const reasons: string[] = [];
+
+      const slugHits = [...queryTokens].filter((token) => slugTokens.has(token)).length;
+      if (slugHits) {
+        score += slugHits * 3;
+        reasons.push(`slug_hits=${slugHits}`);
+      }
+
+      const titleHits = [...queryTokens].filter((token) => titleTokens.has(token)).length;
+      if (titleHits) {
+        score += titleHits * 3;
+        reasons.push(`title_hits=${titleHits}`);
+      }
+
+      for (const tag of tags) {
+        const hits = tagBoundaryHits(tag, query);
+        if (hits) {
+          score += hits * 2;
+          reasons.push(`tag '${tag}' x ${hits}`);
+        }
+      }
+
+      for (const alias of aliases) {
+        const hits = tagBoundaryHits(alias, query);
+        if (hits) {
+          score += hits * 2;
+          reasons.push(`alias '${alias}' x ${hits}`);
+        }
+      }
+
+      for (const category of categories) {
+        const hits = tagBoundaryHits(category, query);
+        if (hits) {
+          score += hits;
+          reasons.push(`category '${category}' x ${hits}`);
+        }
+      }
+
+      if (score <= 0) continue;
+      if (!best || score > best.score || (score === best.score && slug.localeCompare(best.slug) < 0)) {
+        best = { slug, meta, score, reasons };
+      }
+    }
+
+    const slug = best?.slug ?? Object.keys(pack.files ?? {}).sort()[0] ?? null;
+    if (!slug) {
+      return {
+        ok: false,
+        abs_path: null,
+        rel_path: null,
+        label: query,
+        kind: "brand" as const,
+        details: { slug: null, tags: [], aliases: [], categories: [], score: 0, reasons: ["empty-catalog"], fallback: true },
+      };
+    }
+
+    const meta = best?.meta ?? pack.files?.[slug] ?? {};
+    const absPath = path.posix.join(assetsRoot, "brands", `${slug}.svg`);
+    const ok = await fs
+      .access(absPath)
+      .then(() => true)
+      .catch(() => false);
+
+    return {
+      ok,
+      abs_path: ok ? absPath : null,
+      rel_path: `framework/assets/brands/${slug}.svg`,
+      label: meta.title ?? slug,
+      kind: "brand" as const,
+      details: {
+        slug,
+        tags: meta.tags ?? [],
+        aliases: meta.aliases ?? [],
+        categories: meta.categories ?? [],
+        qlik_category: meta.qlik_category ?? null,
+        license: meta.license ?? null,
+        hex: meta.hex ?? null,
+        score: best?.score ?? 0,
+        reasons: best?.reasons ?? ["fallback"],
+        fallback: !best,
+      },
+    };
+  };
+
   const resolveAsset = async (kind: QpsAssetKind, query: string, slot?: string | null) => {
     if (kind === "icon") return resolveIcon(query);
     if (kind === "brand-art") return resolveBrandArt(query, slot);
+    if (kind === "brand") return resolveBrand(query);
     if (kind === "hero") {
       const decision = await pickHero(query, null);
       const primary = (decision as any).primary ?? {};
@@ -512,11 +635,13 @@ export const createQpsAssetResolver = ({ assetsRoot, qpsPluginRoot }: QpsAssetRe
   return {
     inlineIcon,
     loadArtManifest,
+    loadBrandsPack,
     loadIconsPack,
     loadProductsPack,
     pickDiagramIcons,
     pickHero,
     resolveAsset,
+    resolveBrand,
     resolveBrandArt,
     resolveIcon,
   };
