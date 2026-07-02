@@ -114,6 +114,7 @@ export const main = async () => {
   if (files.length === 0) throw new Error(`No eval case files found in ${casesDir}`);
 
   const failures = [];
+  const skippedByServer = new Map();
   let total = 0;
   let passed = 0;
 
@@ -123,11 +124,17 @@ export const main = async () => {
     if (!Array.isArray(cases)) throw new Error(`Eval file must be an array: ${file}`);
 
     for (const c of cases) {
-      total += 1;
       const server = c?.server;
       const tool = c?.tool;
       const input = c?.input ?? {};
       const expect = c?.expect ?? {};
+
+      if (typeof server === "string" && server.length > 0 && !knownServers.has(server)) {
+        skippedByServer.set(server, (skippedByServer.get(server) ?? 0) + 1);
+        continue;
+      }
+
+      total += 1;
 
       const res = await postJson(`${controlBaseUrl}/runs`, {
         serverName: server,
@@ -154,12 +161,12 @@ export const main = async () => {
         assertion: assertion.message,
         response: normalizedBody,
         responsePreview: serialized.slice(0, 400),
-        setupHint:
-          typeof server === "string" && server.length > 0 && !knownServers.has(server)
-            ? `Server not registered in Control API. Known: ${[...knownServers].sort().join(", ")}`
-            : null,
       });
     }
+  }
+
+  for (const [server, count] of [...skippedByServer.entries()].sort()) {
+    process.stdout.write(`skipped ${count} case(s) for unregistered server "${server}" (not enabled in this stack)\n`);
   }
 
   if (failures.length) {
@@ -167,7 +174,6 @@ export const main = async () => {
     for (const f of failures.slice(0, 20)) {
       process.stderr.write(`${f.file} :: ${f.server} :: ${f.tool} (status ${f.status}) expectation: ${JSON.stringify(f.expectation)}\n`);
       if (f.assertion) process.stderr.write(`  ${f.assertion}\n`);
-      if (f.setupHint) process.stderr.write(`  ${f.setupHint}\n`);
       process.stderr.write(`  response: ${f.responsePreview}\n`);
     }
     process.exitCode = 1;
