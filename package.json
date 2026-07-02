@@ -16,8 +16,8 @@
   },
   "scripts": {
     "setup:local": "node scripts/bootstrap-local.mjs",
-    "compose:up": "PLAYWRIGHT_ALLOWED_ORIGINS=${PLAYWRIGHT_ALLOWED_ORIGINS:-http://admin-ui:3000} docker compose --env-file .env -f docker-compose.yml up -d --build",
-    "compose:up:qps": "ENABLE_QPS_TOOLKIT=true QPS_TOOLKIT_ROOT=${QPS_TOOLKIT_ROOT:-../../Skills/qps-toolkit} PLAYWRIGHT_ALLOWED_ORIGINS=${PLAYWRIGHT_ALLOWED_ORIGINS:-http://admin-ui:3000} docker compose --profile qps --env-file .env -f docker-compose.yml up -d --build",
+    "compose:up": "PLAYWRIGHT_ALLOWED_ORIGINS=${PLAYWRIGHT_ALLOWED_ORIGINS:-http://admin-ui:3000} docker compose --env-file .env -f docker-compose.yml up -d --build --wait --wait-timeout 300",
+    "compose:up:qps": "ENABLE_QPS_TOOLKIT=true QPS_TOOLKIT_ROOT=${QPS_TOOLKIT_ROOT:-../../Skills/qps-toolkit} PLAYWRIGHT_ALLOWED_ORIGINS=${PLAYWRIGHT_ALLOWED_ORIGINS:-http://admin-ui:3000} docker compose --profile qps --env-file .env -f docker-compose.yml up -d --build --wait --wait-timeout 300",
     "smoke": "node scripts/smoke.mjs",
     "evals": "node scripts/run-evals.mjs",
     "dev": "pnpm -r dev",
